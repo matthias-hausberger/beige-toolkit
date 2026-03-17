@@ -1,0 +1,82 @@
+{
+  "name": "chrome",
+  "description": "Control a Chrome browser via the chrome-devtools-mcp server. Supports navigation, screenshots, DOM inspection, JavaScript evaluation, network monitoring, performance analysis, and more. Each agent gets its own persistent browser profile. The browser process is started on first use and closed automatically after an idle timeout.",
+  "commands": [
+    "take_snapshot                                            — take an accessibility tree snapshot of the current page (use this first)",
+    "navigate_page --url <url>                               — navigate to a URL",
+    "take_screenshot                                         — screenshot saved to /workspace/media/inbound/",
+    "click --uid <uid>                                       — click an element (uid from take_snapshot)",
+    "fill --uid <uid> --value <text>                         — type into an input",
+    "fill_form --elements <json>                             — fill multiple form fields at once",
+    "evaluate_script --function <js>                        — evaluate JavaScript in the page",
+    "list_pages                                              — list open tabs",
+    "new_page --url <url>                                    — open a new tab",
+    "list_console_messages                                   — list browser console messages",
+    "list_network_requests                                   — list network requests since last navigation",
+    "lighthouse_audit                                        — run Lighthouse accessibility/SEO/best-practices audit",
+    "--list-tools                                            — list all available MCP tools"
+  ],
+  "target": "gateway",
+  "config": {
+    "slim": {
+      "type": "boolean",
+      "description": "Launch in slim mode — only navigate, evaluate, screenshot tools are available. Much lower token usage. Default: false.",
+      "default": false
+    },
+    "headless": {
+      "type": "boolean",
+      "description": "Launch Chrome headlessly (no visible window). Default: false.",
+      "default": false
+    },
+    "channel": {
+      "type": "string",
+      "description": "Chrome channel to use: stable | beta | dev | canary. Default: stable.",
+      "default": "stable"
+    },
+    "viewport": {
+      "type": "string",
+      "description": "Browser viewport size as WxH, e.g. '1280x720'. Default: unset (Chrome default).",
+      "example": "1280x720"
+    },
+    "idleTimeoutMinutes": {
+      "type": "number",
+      "description": "Automatically close the browser process after this many minutes of inactivity. Default: 30.",
+      "default": 30
+    },
+    "version": {
+      "type": "string",
+      "description": "chrome-devtools-mcp npm version to use via npx. Default: latest.",
+      "default": "latest"
+    },
+    "allowTools": {
+      "type": "string | string[]",
+      "description": "If set, only these MCP tool names are callable. Omit to allow all.",
+      "example": ["take_snapshot", "navigate_page", "take_screenshot"]
+    },
+    "denyTools": {
+      "type": "string | string[]",
+      "description": "These MCP tool names are always blocked, even if in allowTools. Deny beats allow.",
+      "example": ["evaluate_script"]
+    },
+    "noUsageStatistics": {
+      "type": "boolean",
+      "description": "Opt out of Google usage statistics collection. Default: true.",
+      "default": true
+    },
+    "timeout": {
+      "type": "number",
+      "description": "Timeout per MCP tool call in seconds. Default: 60.",
+      "default": 60
+    },
+    "proxyServer": {
+      "type": "string",
+      "description": "Proxy server URL, e.g. 'http://proxy:8080'. Optional.",
+      "example": "http://proxy:8080"
+    },
+    "acceptInsecureCerts": {
+      "type": "boolean",
+      "description": "Accept insecure TLS certificates. Default: false.",
+      "default": false
+    }
+  }
+}

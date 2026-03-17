@@ -9,6 +9,7 @@
     "./tools/github",
     "./tools/agent-to-agent",
     "./tools/sessions",
-    "./tools/slack"
+    "./tools/slack",
+    "./tools/chrome"
   ]
 }

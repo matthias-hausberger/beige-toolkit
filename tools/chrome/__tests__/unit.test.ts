@@ -1,0 +1,410 @@
+/**
+ * Unit tests for the chrome tool.
+ *
+ * No real chrome-devtools-mcp process is spawned. All tests use injected stubs.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { createHandler, parseArgs, type ProcessManagerLike } from "../index.js";
+import type { ManagedProcess } from "../process-manager.js";
+import type { McpToolCallResult, McpTool } from "../mcp-client.js";
+
+// ---------------------------------------------------------------------------
+// Stub builder
+// ---------------------------------------------------------------------------
+
+type StubResult = McpToolCallResult | Error;
+
+function makeProcessManager(
+  toolResults: Record<string, StubResult> = {},
+  tools: McpTool[] = []
+): ProcessManagerLike & {
+  calls: Array<{ toolName: string; args: Record<string, unknown> }>;
+  spawnCount: number;
+} {
+  const calls: Array<{ toolName: string; args: Record<string, unknown> }> = [];
+  let spawnCount = 0;
+  let closed = false;
+
+  const client = {
+    get isClosed() { return closed; },
+    async listTools() { return tools; },
+    async callTool(name: string, args: Record<string, unknown>) {
+      calls.push({ toolName: name, args });
+      const result = toolResults[name];
+      if (!result) return { content: [{ type: "text" as const, text: `called ${name}` }], isError: false };
+      if (result instanceof Error) throw result;
+      return result;
+    },
+    async initialize() {},
+  };
+
+  const managed: ManagedProcess = {
+    client,
+    touch() {},
+    kill() { closed = true; },
+  };
+
+  return {
+    calls,
+    get spawnCount() { return spawnCount; },
+    async getOrCreate(_agentName: string) {
+      spawnCount++;
+      return managed;
+    },
+    killAll() { closed = true; },
+  };
+}
+
+const SESSION = { agentName: "coder" };
+
+let tmpDir: string;
+beforeEach(() => {
+  tmpDir = mkdtempSync(join(tmpdir(), "chrome-test-"));
+});
+afterEach(() => {
+  try { rmSync(tmpDir, { recursive: true }); } catch {}
+});
+
+// ---------------------------------------------------------------------------
+// parseArgs
+// ---------------------------------------------------------------------------
+
+describe("parseArgs", () => {
+  it("returns listTools for --list-tools", () => {
+    expect(parseArgs(["--list-tools"]).listTools).toBe(true);
+  });
+
+  it("returns null toolName for empty args", () => {
+    expect(parseArgs([]).toolName).toBeNull();
+  });
+
+  it("parses tool name with no params", () => {
+    const r = parseArgs(["take_snapshot"]);
+    expect(r.toolName).toBe("take_snapshot");
+    expect(r.params).toEqual({});
+  });
+
+  it("parses flag-style params", () => {
+    const r = parseArgs(["navigate_page", "--url", "https://example.com"]);
+    expect(r.toolName).toBe("navigate_page");
+    expect(r.params).toEqual({ url: "https://example.com" });
+  });
+
+  it("parses --key=value style", () => {
+    const r = parseArgs(["navigate_page", "--url=https://example.com"]);
+    expect(r.params.url).toBe("https://example.com");
+  });
+
+  it("parses boolean flags", () => {
+    const r = parseArgs(["take_screenshot", "--fullPage"]);
+    expect(r.params.fullPage).toBe(true);
+  });
+
+  it("coerces numeric values", () => {
+    const r = parseArgs(["new_page", "--timeout", "5000"]);
+    expect(r.params.timeout).toBe(5000);
+  });
+
+  it("coerces boolean string values", () => {
+    const r = parseArgs(["click", "--dblClick", "true"]);
+    expect(r.params.dblClick).toBe(true);
+  });
+
+  it("parses JSON object form", () => {
+    const r = parseArgs(["fill_form", '{"elements":[{"uid":"u1","value":"hi"}]}']);
+    expect(r.toolName).toBe("fill_form");
+    expect((r.params as any).elements).toHaveLength(1);
+  });
+
+  it("falls back to flag parsing if JSON is invalid", () => {
+    const r = parseArgs(["navigate_page", "{bad json}", "--url", "https://x.com"]);
+    expect(r.params.url).toBe("https://x.com");
+  });
+
+  it("parses multiple flags", () => {
+    const r = parseArgs(["click", "--uid", "btn-1", "--dblClick", "true"]);
+    expect(r.params).toEqual({ uid: "btn-1", dblClick: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Agent identity
+// ---------------------------------------------------------------------------
+
+describe("agent identity", () => {
+  it("returns error when agentName is unknown", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    const result = await handler(["take_snapshot"], undefined, {});
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("agent identity unknown");
+    expect(pm.spawnCount).toBe(0);
+  });
+
+  it("proceeds when agentName is set", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    const result = await handler(["take_snapshot"], undefined, SESSION);
+    expect(result.exitCode).toBe(0);
+    expect(pm.spawnCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// No args / usage
+// ---------------------------------------------------------------------------
+
+describe("no args", () => {
+  it("returns usage when called with empty args", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    const result = await handler([], undefined, SESSION);
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("Usage:");
+    expect(pm.spawnCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --list-tools
+// ---------------------------------------------------------------------------
+
+describe("--list-tools", () => {
+  it("returns formatted tool list", async () => {
+    const pm = makeProcessManager({}, [
+      { name: "take_snapshot", description: "Take an a11y snapshot" },
+      { name: "navigate_page", description: "Navigate to URL" },
+    ]);
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    const result = await handler(["--list-tools"], undefined, SESSION);
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("take_snapshot");
+    expect(result.output).toContain("navigate_page");
+    expect(result.output).toContain("2 tools");
+  });
+
+  it("returns message when no tools available", async () => {
+    const pm = makeProcessManager({}, []);
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    const result = await handler(["--list-tools"], undefined, SESSION);
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("No tools");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Permission checks
+// ---------------------------------------------------------------------------
+
+describe("permission checks", () => {
+  it("blocks tool in denyTools", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler(
+      { denyTools: ["evaluate_script"] },
+      { processManager: pm, workspaceDir: tmpDir }
+    );
+    const result = await handler(["evaluate_script", "--function", "() => 1"], undefined, SESSION);
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("Permission denied");
+    expect(result.output).toContain("evaluate_script");
+    expect(pm.calls).toHaveLength(0);
+  });
+
+  it("blocks tool not in allowTools", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler(
+      { allowTools: ["take_snapshot", "navigate_page"] },
+      { processManager: pm, workspaceDir: tmpDir }
+    );
+    const result = await handler(["evaluate_script", "--function", "() => 1"], undefined, SESSION);
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("Permission denied");
+    expect(pm.calls).toHaveLength(0);
+  });
+
+  it("allows tool in allowTools", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler(
+      { allowTools: ["take_snapshot"] },
+      { processManager: pm, workspaceDir: tmpDir }
+    );
+    const result = await handler(["take_snapshot"], undefined, SESSION);
+    expect(result.exitCode).toBe(0);
+    expect(pm.calls).toHaveLength(1);
+  });
+
+  it("deny beats allow", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler(
+      { allowTools: ["evaluate_script"], denyTools: ["evaluate_script"] },
+      { processManager: pm, workspaceDir: tmpDir }
+    );
+    const result = await handler(["evaluate_script"], undefined, SESSION);
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("Permission denied");
+    expect(pm.calls).toHaveLength(0);
+  });
+
+  it("allows all tools when neither allowTools nor denyTools is set", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    const result = await handler(["evaluate_script", "--function", "() => 1"], undefined, SESSION);
+    expect(result.exitCode).toBe(0);
+    expect(pm.calls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tool invocation
+// ---------------------------------------------------------------------------
+
+describe("tool invocation", () => {
+  it("passes tool name and params to process manager", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    await handler(["navigate_page", "--url", "https://example.com"], undefined, SESSION);
+    expect(pm.calls[0].toolName).toBe("navigate_page");
+    expect(pm.calls[0].args.url).toBe("https://example.com");
+  });
+
+  it("returns tool output text", async () => {
+    const pm = makeProcessManager({
+      take_snapshot: {
+        content: [{ type: "text", text: "Page: example.com\n- button[42] Submit" }],
+        isError: false,
+      },
+    });
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    const result = await handler(["take_snapshot"], undefined, SESSION);
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("example.com");
+  });
+
+  it("returns exitCode 1 when MCP result has isError: true", async () => {
+    const pm = makeProcessManager({
+      navigate_page: {
+        content: [{ type: "text", text: "net::ERR_NAME_NOT_RESOLVED" }],
+        isError: true,
+      },
+    });
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    const result = await handler(["navigate_page", "--url", "https://invalid-domain-xyz.com"], undefined, SESSION);
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("ERR_NAME_NOT_RESOLVED");
+  });
+
+  it("returns error when process manager throws", async () => {
+    const failPm: ProcessManagerLike = {
+      async getOrCreate() { throw new Error("npx not found"); },
+      killAll() {},
+    };
+    const handler = createHandler({}, { processManager: failPm, workspaceDir: tmpDir });
+    const result = await handler(["take_snapshot"], undefined, SESSION);
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("failed to start chrome-devtools-mcp");
+    expect(result.output).toContain("npx not found");
+  });
+
+  it("returns error and crash message when client is closed mid-call", async () => {
+    let closed = false;
+    const pm: ProcessManagerLike = {
+      async getOrCreate() {
+        return {
+          client: {
+            get isClosed() { return closed; },
+            async listTools() { return []; },
+            async callTool() {
+              closed = true; // simulate crash during call
+              throw new Error("process died");
+            },
+            async initialize() {},
+          },
+          touch() {},
+          kill() {},
+        };
+      },
+      killAll() {},
+    };
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    const result = await handler(["take_snapshot"], undefined, SESSION);
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("exited unexpectedly");
+    expect(result.output).toContain("restarted on your next call");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Screenshot path injection
+// ---------------------------------------------------------------------------
+
+describe("screenshot path injection", () => {
+  it("injects filePath into take_screenshot params", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    await handler(["take_screenshot"], undefined, SESSION);
+    const args = pm.calls[0].args;
+    expect(typeof args.filePath).toBe("string");
+    expect(args.filePath as string).toContain("media/inbound");
+    expect(args.filePath as string).toContain(".png");
+  });
+
+  it("does not override filePath if agent supplies one", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    await handler(["take_screenshot", "--filePath", "/custom/path.png"], undefined, SESSION);
+    expect(pm.calls[0].args.filePath).toBe("/custom/path.png");
+  });
+
+  it("output contains sandbox path for screenshot", async () => {
+    const pm = makeProcessManager({
+      take_screenshot: {
+        content: [{ type: "image", data: "base64data", mimeType: "image/png" }],
+        isError: false,
+      },
+    });
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    const result = await handler(["take_screenshot"], undefined, SESSION);
+    expect(result.output).toContain("media/inbound");
+  });
+
+  it("does not inject filePath for non-screenshot tools", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    await handler(["take_snapshot"], undefined, SESSION);
+    expect(pm.calls[0].args.filePath).toBeUndefined();
+  });
+
+  it("also injects filePath for slim-mode screenshot tool name", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    await handler(["screenshot"], undefined, SESSION);
+    expect(pm.calls[0].args.filePath).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multiple content items
+// ---------------------------------------------------------------------------
+
+describe("multiple content items", () => {
+  it("joins multiple text items with separator", async () => {
+    const pm = makeProcessManager({
+      take_snapshot: {
+        content: [
+          { type: "text", text: "Part one" },
+          { type: "text", text: "Part two" },
+        ],
+        isError: false,
+      },
+    });
+    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    const result = await handler(["take_snapshot"], undefined, SESSION);
+    expect(result.output).toContain("Part one");
+    expect(result.output).toContain("Part two");
+    expect(result.output).toContain("---");
+  });
+});
