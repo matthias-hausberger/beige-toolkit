@@ -1,0 +1,25 @@
+{
+  "name": "agent-to-agent",
+  "description": "Invoke another beige agent (or the same agent as a sub-agent) and hold a multi-turn conversation with it. Each call returns the target agent's full response plus a session key you can pass back to --session to continue the same conversation. Depth is enforced: by default a sub-agent cannot invoke further agents (maxDepth: 1). All cross-agent calls are opt-in — no targets are allowed until allowedTargets is configured.",
+  "commands": [
+    "--target <agent>  <message...>              — Start a new conversation with <agent>",
+    "--target <agent>  --session <key> <message...> — Continue an existing conversation",
+    "--target <agent>  --session <key> --message-file <path> — Continue with a longer message from a file"
+  ],
+  "target": "gateway",
+  "config": {
+    "allowedTargets": {
+      "type": "Record<callerAgentName, string[]>",
+      "description": "Explicit opt-in map. Key: the agent making the call. Value: list of agent names it may call. Omit an agent entirely to prevent it from making any agent-to-agent calls. To allow self-invocation (sub-agent), include the agent's own name in its list.",
+      "example": {
+        "coder": ["reviewer", "coder"],
+        "reviewer": ["coder"]
+      }
+    },
+    "maxDepth": {
+      "type": "number",
+      "description": "Maximum nesting depth for agent-to-agent calls. 0 = no calls allowed. 1 (default) = agents may call agents, but those sub-agents may not invoke further agents. Increase with care.",
+      "default": 1
+    }
+  }
+}

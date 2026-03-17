@@ -6,6 +6,7 @@
   "license": "MIT",
   "repository": "github:matthias-hausberger/beige-toolkit",
   "tools": [
-    "./tools/github"
+    "./tools/github",
+    "./tools/agent-to-agent"
   ]
 }
