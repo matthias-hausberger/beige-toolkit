@@ -8,6 +8,16 @@ on:
   workflow_call:
 
 jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify package.json and toolkit.json versions match
+        run: bash scripts/check-versions.sh
+
   typecheck:
     runs-on: ubuntu-latest
 
