@@ -25,7 +25,7 @@
  */
 
 import { spawn } from "child_process";
-import { mkdirSync, readFileSync, existsSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, existsSync, writeFileSync, rmSync } from "fs";
 import { homedir } from "os";
 import { resolve, join } from "path";
 import { McpClient, type McpClientLike } from "./mcp-client.ts";
@@ -147,6 +147,11 @@ export class ProcessManager {
       setChromeDownloadPreferences(profileDir, downloadDir);
     }
 
+    // Remove saved session data so Chrome starts with a clean new tab
+    // instead of restoring tabs from the previous session.
+    const sessionsDir = join(profileDir, "Default", "Sessions");
+    try { rmSync(sessionsDir, { recursive: true }); } catch { /* doesn't exist — fine */ }
+
     // Build CLI args for chrome-devtools-mcp
     const mcpArgs = buildMcpArgs(config, profileDir);
 
@@ -244,16 +249,19 @@ function buildMcpArgs(config: ProcessConfig, profileDir: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Chrome Preferences — download directory
+// Chrome Preferences
 // ---------------------------------------------------------------------------
 
 /**
- * Write (or patch) Chrome's `Default/Preferences` file to set the download
- * directory.  Chrome reads this JSON file once at startup, so it must be
- * written **before** the browser process is launched.
+ * Write (or patch) Chrome's `Default/Preferences` file to configure:
+ *   - download directory → `downloadDir`
+ *   - session restore   → always start with a blank new-tab page
  *
- * If a `Preferences` file already exists (from a previous session) the
- * download-related keys are merged in; all other preferences are preserved.
+ * Chrome reads this JSON file once at startup, so it must be written
+ * **before** the browser process is launched.
+ *
+ * If a `Preferences` file already exists (from a previous session) only the
+ * relevant keys are merged in; all other preferences are preserved.
  */
 export function setChromeDownloadPreferences(
   profileDir: string,
@@ -274,16 +282,21 @@ export function setChromeDownloadPreferences(
     }
   }
 
-  // Patch the download section
+  // ── Download directory ──────────────────────────────────────────────────
   const download = (prefs.download ?? {}) as Record<string, unknown>;
   download.default_directory = downloadDir;
   download.prompt_for_download = false;
   prefs.download = download;
 
-  // Also patch savefile.default_directory (used by "Save As" dialogs)
   const savefile = (prefs.savefile ?? {}) as Record<string, unknown>;
   savefile.default_directory = downloadDir;
   prefs.savefile = savefile;
+
+  // ── Session restore — always start fresh ────────────────────────────────
+  // 1 = "Open the New Tab page", 4 = "Continue where you left off"
+  const session = (prefs.session ?? {}) as Record<string, unknown>;
+  session.restore_on_startup = 1;
+  prefs.session = session;
 
   writeFileSync(prefsPath, JSON.stringify(prefs), "utf-8");
 }

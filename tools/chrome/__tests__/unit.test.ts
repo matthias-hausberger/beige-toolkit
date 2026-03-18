@@ -469,6 +469,13 @@ describe("setChromeDownloadPreferences", () => {
     expect(prefs.savefile.default_directory).toBe(downloadDir);
   });
 
+  it("sets session.restore_on_startup to 1 (new tab)", () => {
+    const profileDir = join(tmpBeigeDir, "profile-session");
+    setChromeDownloadPreferences(profileDir, "/download/path");
+    const prefs = JSON.parse(readFileSync(join(profileDir, "Default", "Preferences"), "utf-8"));
+    expect(prefs.session.restore_on_startup).toBe(1);
+  });
+
   it("preserves existing preferences when patching", () => {
     const profileDir = join(tmpBeigeDir, "profile");
     const defaultDir = join(profileDir, "Default");
