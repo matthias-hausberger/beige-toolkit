@@ -14,13 +14,9 @@
  *   ["read", "123456789"]                  → "read"
  *   ["search", "my query"]                 → "search"
  *   ["create", "My Page", "SPACE"]         → "create"
- *   ["profile", "list"]                    → "profile"
+ *   ["profile", "list"]                    → "profile list"
  *
- * Note: "profile" is treated as a single token since multi-word subcommand
- * paths such as "profile list" or "profile use" are also supported when
- * placed in allow/deny lists.
- *
- * ── Permission model ─────────────────────────────────────────────────────────
+ * ── Command-level permission model ───────────────────────────────────────────
  *
  *   1. denyCommands checked first — any prefix match → rejected.
  *   2. allowCommands checked second — if set and no prefix match → rejected.
@@ -29,7 +25,55 @@
  * Unlike the slack tool, confluence-cli has no built-in destructive auth
  * commands that need special protection (authentication is done once at
  * setup time via `confluence init`).  Therefore the default denylist is
- * EMPTY — all commands pass through unless the user configures restrictions.
+ * EMPTY — all commands pass through unless the operator explicitly restricts.
+ *
+ * ── Space-level permission model ─────────────────────────────────────────────
+ *
+ * When `allowReadSpaces` and/or `allowWriteSpaces` are configured, a second
+ * permission layer enforces which Confluence spaces the agent may access.
+ * When neither is configured, this layer is skipped entirely.
+ *
+ * Commands are classified as READ or WRITE:
+ *
+ *   READ  : read, info, children, attachments, comments, property-list,
+ *           property-get, export, edit, find, search
+ *   WRITE : create, create-child, update, delete, move, copy-tree,
+ *           attachment-upload, attachment-delete, comment,
+ *           property-set, property-delete
+ *   AGNOSTIC (no space enforcement): spaces, stats, profile, init,
+ *           comment-delete (see disclaimer below)
+ *
+ * Space resolution strategy:
+ *
+ *   Tier 1 — static (free, no API call):
+ *     `create`         : space key is positional args[2]
+ *     `find --space`   : --space flag value
+ *     `search --space` : --space flag value
+ *     URL arguments    : parsed from /wiki/spaces/SPACEKEY/ in the path
+ *
+ *   Tier 2 — dynamic (requires one `confluence info <pageId>` call):
+ *     All other commands whose target is a numeric page ID.
+ *     Results are cached in-process for the lifetime of the handler.
+ *
+ * Enforcement order per call:
+ *   1. Command-level allow/deny check
+ *   2. Space-level check (if allowReadSpaces / allowWriteSpaces configured)
+ *   3. Execute
+ *
+ * ⚠️  CQL disclaimer:
+ *   The `search` command accepts a free-text query that may contain CQL
+ *   expressions (e.g. `space IN (TEAM, DOCS) AND ...`).  This tool only
+ *   inspects the `--space` flag; CQL embedded in the query string is NOT
+ *   parsed or enforced.  If strict space isolation for search is required,
+ *   set `requireSpaceOnSearch: true` (rejects searches without `--space`)
+ *   AND combine with a denyCommands entry or network-level controls if you
+ *   cannot trust agents to omit CQL.
+ *
+ * ⚠️  comment-delete disclaimer:
+ *   `comment-delete <commentId>` takes a comment ID, not a page ID or URL.
+ *   confluence-cli provides no way to look up a comment's parent page or
+ *   space from a comment ID alone, so space enforcement is not applied to
+ *   this command.  Restrict it via denyCommands if needed.
  *
  * ── Subprocess ───────────────────────────────────────────────────────────────
  *
@@ -47,7 +91,8 @@
  *
  *   { executor? }
  *
- * executor replaces the real execFile call.  Tests inject a stub that returns
+ * executor replaces every real execFile call, including the `confluence info`
+ * lookups used for Tier 2 space resolution.  Tests inject a stub that returns
  * controlled output without spawning any process.
  */
 
@@ -75,7 +120,46 @@ export interface ConfluenceConfig {
   denyCommands?: string | string[];
 
   /**
+   * Spaces the agent is allowed to READ from.
+   * Applies to: read, info, children, attachments, comments, property-list,
+   * property-get, export, edit, find, search (with --space).
+   *
+   * Omit (or set to empty array) to allow reading from ALL spaces.
+   *
+   * Space keys are matched case-insensitively.
+   *
+   * ⚠️  CQL in `search` query strings is NOT enforced — see module disclaimer.
+   */
+  allowReadSpaces?: string | string[];
+
+  /**
+   * Spaces the agent is allowed to WRITE to.
+   * Applies to: create, create-child, update, delete, move, copy-tree,
+   * attachment-upload, attachment-delete, comment, property-set,
+   * property-delete.
+   *
+   * Omit (or set to empty array) to allow writing to ALL spaces.
+   *
+   * Space keys are matched case-insensitively.
+   *
+   * ⚠️  comment-delete is NOT covered — see module disclaimer.
+   */
+  allowWriteSpaces?: string | string[];
+
+  /**
+   * When true, `search` calls that do not include a `--space` flag are
+   * rejected.  Forces agents to always scope searches to a specific space.
+   * Default: false.
+   *
+   * Note: this controls the --space flag only.  CQL in the query string is
+   * not parsed.  See the CQL disclaimer in the module header.
+   */
+  requireSpaceOnSearch?: boolean;
+
+  /**
    * Timeout in seconds for each confluence invocation.  Default: 30.
+   * Also applied to the internal `confluence info` calls used for
+   * Tier 2 space resolution.
    */
   timeout?: number;
 
@@ -107,15 +191,60 @@ type ToolHandler = (
 ) => Promise<{ output: string; exitCode: number }>;
 
 // ---------------------------------------------------------------------------
-// Default denylist
+// Command classification
 // ---------------------------------------------------------------------------
 
 /**
- * confluence-cli does not have session-mutating auth subcommands that agents
- * should be shielded from (login happens once via `confluence init` at setup
- * time).  The default denylist is therefore empty — all commands pass through
- * unless the operator explicitly configures restrictions.
+ * READ commands: the agent is reading Confluence content.
+ * Space enforcement checks allowReadSpaces.
  */
+const READ_COMMANDS = new Set([
+  "read",
+  "info",
+  "children",
+  "attachments",
+  "comments",
+  "property-list",
+  "property-get",
+  "export",
+  "edit",
+  "find",
+  "search",
+]);
+
+/**
+ * WRITE commands: the agent is mutating Confluence content.
+ * Space enforcement checks allowWriteSpaces.
+ */
+const WRITE_COMMANDS = new Set([
+  "create",
+  "create-child",
+  "update",
+  "delete",
+  "move",
+  "copy-tree",
+  "attachment-upload",
+  "attachment-delete",
+  "comment",
+  "property-set",
+  "property-delete",
+]);
+
+// AGNOSTIC (no space enforcement): spaces, stats, profile, init,
+// comment-delete (see disclaimer).
+
+export type CommandKind = "read" | "write" | "agnostic";
+
+export function classifyCommand(subcommand: string): CommandKind {
+  if (READ_COMMANDS.has(subcommand)) return "read";
+  if (WRITE_COMMANDS.has(subcommand)) return "write";
+  return "agnostic";
+}
+
+// ---------------------------------------------------------------------------
+// Default denylist
+// ---------------------------------------------------------------------------
+
 const DEFAULT_DENY: string[] = [];
 
 // ---------------------------------------------------------------------------
@@ -177,23 +306,91 @@ export function extractCommandPath(args: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// Permission check
+// Space extraction helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Normalise config field to an array of trimmed, lowercase command path strings.
+ * Try to extract a Confluence space key from a URL.
+ *
+ * Confluence Cloud URLs contain the space key in the path:
+ *   https://domain.atlassian.net/wiki/spaces/SPACEKEY/pages/...
+ *
+ * Returns the space key string (uppercased) or null if not found.
  */
-function toPathArray(value: string | string[] | undefined): string[] {
-  if (!value) return [];
-  const arr = Array.isArray(value) ? value : [value];
-  return arr.map((s) => s.trim().toLowerCase()).filter(Boolean);
+export function extractSpaceFromUrl(urlOrId: string): string | null {
+  // Match /wiki/spaces/<KEY>/ — key is alphanumeric + hyphens/underscores
+  const m = urlOrId.match(/\/wiki\/spaces\/([A-Za-z0-9_~-]+)\//i);
+  if (m) return m[1].toUpperCase();
+  return null;
 }
 
 /**
- * Return true if `commandPath` is matched by any entry in `patterns`.
- * Matching is by prefix: pattern "create" matches "create", "create-child",
- * etc.  Pattern "profile list" only matches "profile list".
+ * Return the value of a named flag from an args array, or null.
+ *
+ * Handles both "--flag value" (two separate tokens) forms.
  */
+export function extractFlag(args: string[], flag: string): string | null {
+  const idx = args.indexOf(flag);
+  if (idx !== -1 && idx + 1 < args.length) return args[idx + 1];
+  return null;
+}
+
+/**
+ * Return true if the string looks like a numeric Confluence page ID
+ * (all digits, no slashes or dots).
+ */
+export function isPageId(value: string): boolean {
+  return /^\d+$/.test(value);
+}
+
+/**
+ * Get the first positional argument after the subcommand (and after any
+ * leading --profile flag).  This is args[1] in most commands, but we derive
+ * it properly by skipping the global flag and the subcommand token itself.
+ *
+ * Returns null if there is no such token (or it looks like a flag).
+ */
+export function extractFirstPositional(args: string[]): string | null {
+  let i = 0;
+  if (i < args.length && args[i] === "--profile") i += 2;
+  if (i >= args.length || args[i].startsWith("-")) return null;
+  i++; // skip subcommand
+  if (i >= args.length || args[i].startsWith("-")) return null;
+  return args[i];
+}
+
+/**
+ * Get the second positional argument after the subcommand.
+ * Used for `create` (spaceKey), `create-child` (parentId),
+ * `copy-tree` (targetParentId), `move` (newParentId).
+ *
+ * Returns null if there is no such token.
+ */
+export function extractSecondPositional(args: string[]): string | null {
+  let i = 0;
+  if (i < args.length && args[i] === "--profile") i += 2;
+  if (i >= args.length || args[i].startsWith("-")) return null;
+  i++; // skip subcommand
+  if (i >= args.length || args[i].startsWith("-")) return null;
+  i++; // skip first positional
+  if (i >= args.length || args[i].startsWith("-")) return null;
+  return args[i];
+}
+
+// ---------------------------------------------------------------------------
+// Command-level permission check
+// ---------------------------------------------------------------------------
+
+function toStringArray(value: string | string[] | undefined): string[] {
+  if (!value) return [];
+  const arr = Array.isArray(value) ? value : [value];
+  return arr.map((s) => s.trim()).filter(Boolean);
+}
+
+function toPathArray(value: string | string[] | undefined): string[] {
+  return toStringArray(value).map((s) => s.toLowerCase());
+}
+
 function matchesAny(commandPath: string, patterns: string[]): boolean {
   const lower = commandPath.toLowerCase();
   return patterns.some((p) => lower === p || lower.startsWith(p + " ") || lower.startsWith(p + "-"));
@@ -206,12 +403,6 @@ export interface PermissionResult {
 
 /**
  * Check whether a command path is permitted under the given config.
- *
- * @param commandPath  The extracted command path, e.g. "create" or "profile list".
- * @param config       The tool config (may be empty object if not configured).
- * @param hasConfig    Whether the user explicitly provided any config.
- *                     When false, the built-in DEFAULT_DENY is applied (empty
- *                     for confluence — all commands allowed by default).
  */
 export function checkPermission(
   commandPath: string,
@@ -243,6 +434,221 @@ export function checkPermission(
   }
 
   return { allowed: true };
+}
+
+// ---------------------------------------------------------------------------
+// Space-level permission check
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether the resolved space key is permitted for the given kind.
+ *
+ * Returns allowed:true when:
+ *   - The relevant allowlist is empty / not configured (no restriction).
+ *   - The space key matches an entry (case-insensitive).
+ */
+export function checkSpacePermission(
+  spaceKey: string,
+  kind: "read" | "write",
+  config: ConfluenceConfig
+): PermissionResult {
+  const list = toStringArray(
+    kind === "read" ? config.allowReadSpaces : config.allowWriteSpaces
+  ).map((s) => s.toUpperCase());
+
+  if (list.length === 0) return { allowed: true };
+
+  const upper = spaceKey.toUpperCase();
+  if (list.includes(upper)) return { allowed: true };
+
+  return {
+    allowed: false,
+    reason: `space '${spaceKey}' is not in allow${kind === "read" ? "Read" : "Write"}Spaces.\nPermitted spaces: ${list.join(", ")}`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Space resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse the space key out of `confluence info` output.
+ *
+ * confluence-cli prints something like:
+ *   Title: My Page
+ *   Space: TEAM
+ *   ...
+ *
+ * Returns the space key string or null if not found.
+ */
+export function parseSpaceFromInfoOutput(output: string): string | null {
+  const m = output.match(/^Space:\s*([A-Za-z0-9_~-]+)/im);
+  return m ? m[1].toUpperCase() : null;
+}
+
+/**
+ * Resolve the Confluence space key for a page ID or URL.
+ *
+ * Fast path (free): if the value is a URL containing /wiki/spaces/KEY/,
+ * extract the space key directly without any API call.
+ *
+ * Slow path (Tier 2): if the value is a numeric page ID, call
+ * `confluence info <pageId>` and parse the output.
+ *
+ * Results for page IDs are cached in the provided Map for the lifetime of
+ * the handler, so repeated calls on the same page never make duplicate
+ * API requests.
+ *
+ * Returns the space key (uppercased) or null if it cannot be determined.
+ */
+export async function resolveSpaceKey(
+  pageIdOrUrl: string,
+  executor: Executor,
+  timeoutMs: number,
+  cache: Map<string, string>,
+  profileArgs: string[]
+): Promise<string | null> {
+  // Fast path: URL
+  const fromUrl = extractSpaceFromUrl(pageIdOrUrl);
+  if (fromUrl) return fromUrl;
+
+  // Slow path: numeric page ID
+  if (!isPageId(pageIdOrUrl)) return null;
+
+  const cached = cache.get(pageIdOrUrl);
+  if (cached !== undefined) return cached;
+
+  // Invoke `confluence [--profile X] info <pageId>`
+  const infoArgs = [...profileArgs, "info", pageIdOrUrl];
+  const result = await executor("confluence", infoArgs, timeoutMs);
+  const combined = [result.stdout, result.stderr].filter(Boolean).join("\n");
+  const spaceKey = parseSpaceFromInfoOutput(combined);
+
+  if (spaceKey) cache.set(pageIdOrUrl, spaceKey);
+  return spaceKey;
+}
+
+// ---------------------------------------------------------------------------
+// Space enforcement entry point
+// ---------------------------------------------------------------------------
+
+/**
+ * Determine the target space(s) for the given command and args, then check
+ * them against the configured allowReadSpaces / allowWriteSpaces.
+ *
+ * Returns allowed:true when:
+ *   - Neither allowReadSpaces nor allowWriteSpaces is configured (no-op).
+ *   - The command is space-agnostic (spaces, stats, profile, comment-delete…).
+ *   - The space key could not be resolved (we fail open to avoid false blocks
+ *     on commands that have no extractable target, e.g. bare `spaces`).
+ *   - The resolved space key is in the relevant list.
+ *
+ * Returns allowed:false with a reason when the space is not permitted.
+ */
+export async function enforceSpacePolicy(
+  subcommand: string,
+  args: string[],
+  config: ConfluenceConfig,
+  executor: Executor,
+  timeoutMs: number,
+  cache: Map<string, string>,
+  profileArgs: string[]
+): Promise<PermissionResult> {
+  const readSpaces = toStringArray(config.allowReadSpaces);
+  const writeSpaces = toStringArray(config.allowWriteSpaces);
+
+  // No space restrictions configured at all → skip entirely
+  if (readSpaces.length === 0 && writeSpaces.length === 0) {
+    return { allowed: true };
+  }
+
+  const kind = classifyCommand(subcommand);
+
+  // Space-agnostic commands (spaces, stats, profile, init, comment-delete)
+  if (kind === "agnostic") return { allowed: true };
+
+  // ── requireSpaceOnSearch ─────────────────────────────────────────────────
+  if (subcommand === "search") {
+    const spaceFlag = extractFlag(args, "--space");
+    if (!spaceFlag) {
+      if (config.requireSpaceOnSearch) {
+        return {
+          allowed: false,
+          reason:
+            "search without --space is not permitted (requireSpaceOnSearch is enabled).\n" +
+            "Add --space <KEY> to scope the search to a specific space.\n" +
+            "Note: CQL expressions embedded in the query string are NOT enforced by this tool.",
+        };
+      }
+      // No --space and requireSpaceOnSearch not set → no space to check, pass through
+      return { allowed: true };
+    }
+    // Has --space: check against the read list
+    return checkSpacePermission(spaceFlag, "read", config);
+  }
+
+  // ── find --space ─────────────────────────────────────────────────────────
+  if (subcommand === "find") {
+    const spaceFlag = extractFlag(args, "--space");
+    if (!spaceFlag) {
+      // `find` without --space searches all spaces — fail open (no space to check)
+      return { allowed: true };
+    }
+    return checkSpacePermission(spaceFlag, "read", config);
+  }
+
+  // ── create — space key is the second positional (args[2]) ────────────────
+  if (subcommand === "create") {
+    const spaceKey = extractSecondPositional(args);
+    if (!spaceKey) return { allowed: true }; // malformed call, let confluence handle it
+    return checkSpacePermission(spaceKey, "write", config);
+  }
+
+  // ── copy-tree — two page IDs (source and target parent) ─────────────────
+  // Both must clear the write space check.
+  if (subcommand === "copy-tree") {
+    const sourceId = extractFirstPositional(args);
+    const targetId = extractSecondPositional(args);
+
+    const targets: string[] = [];
+    if (sourceId) targets.push(sourceId);
+    if (targetId) targets.push(targetId);
+
+    for (const target of targets) {
+      const spaceKey = await resolveSpaceKey(target, executor, timeoutMs, cache, profileArgs);
+      if (!spaceKey) continue; // can't resolve → fail open
+      const check = checkSpacePermission(spaceKey, "write", config);
+      if (!check.allowed) return check;
+    }
+    return { allowed: true };
+  }
+
+  // ── move — source page (write) + target parent page (write) ─────────────
+  if (subcommand === "move") {
+    const sourceId = extractFirstPositional(args);
+    const targetId = extractSecondPositional(args);
+
+    const targets: string[] = [];
+    if (sourceId) targets.push(sourceId);
+    if (targetId) targets.push(targetId);
+
+    for (const target of targets) {
+      const spaceKey = await resolveSpaceKey(target, executor, timeoutMs, cache, profileArgs);
+      if (!spaceKey) continue;
+      const check = checkSpacePermission(spaceKey, "write", config);
+      if (!check.allowed) return check;
+    }
+    return { allowed: true };
+  }
+
+  // ── All remaining commands: single first positional (page ID or URL) ─────
+  const firstPositional = extractFirstPositional(args);
+  if (!firstPositional) return { allowed: true }; // no target → fail open
+
+  const spaceKey = await resolveSpaceKey(firstPositional, executor, timeoutMs, cache, profileArgs);
+  if (!spaceKey) return { allowed: true }; // can't resolve → fail open
+
+  return checkSpacePermission(spaceKey, kind, config);
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +688,7 @@ function usageText(): string {
     "Read / search:",
     "  confluence read <pageId|url> [--format text|html|markdown]",
     "  confluence info <pageId|url>",
-    "  confluence search <query> [--limit <n>]",
+    "  confluence search <query> [--limit <n>] [--space <key>]",
     "  confluence spaces",
     "  confluence find <title> [--space <key>]",
     "  confluence children <pageId> [--recursive] [--format list|tree|json]",
@@ -342,6 +748,9 @@ export function createHandler(
   const hasConfig =
     rawConfig.allowCommands !== undefined ||
     rawConfig.denyCommands !== undefined ||
+    rawConfig.allowReadSpaces !== undefined ||
+    rawConfig.allowWriteSpaces !== undefined ||
+    rawConfig.requireSpaceOnSearch !== undefined ||
     rawConfig.timeout !== undefined ||
     rawConfig.profile !== undefined;
 
@@ -350,30 +759,58 @@ export function createHandler(
   const defaultProfile = config.profile;
   const executor: Executor = context.executor ?? realExecutor;
 
+  // In-process cache: page ID → space key.  Lives for the handler lifetime
+  // (i.e. a single beige gateway session).
+  const spaceCache = new Map<string, string>();
+
   return async (args: string[]): Promise<{ output: string; exitCode: number }> => {
     // ── No args ───────────────────────────────────────────────────────────
     if (args.length === 0) {
       return { output: usageText(), exitCode: 1 };
     }
 
-    // ── Extract command path and check permissions ─────────────────────────
+    // ── Extract command path ──────────────────────────────────────────────
     const commandPath = extractCommandPath(args);
 
+    // The bare subcommand (first token only, no "profile list" compound form)
+    // used for classification and space enforcement.
+    const subcommand = commandPath.split(" ")[0];
+
+    // ── Command-level permission check ────────────────────────────────────
     if (commandPath) {
       const perm = checkPermission(commandPath, config, hasConfig);
       if (!perm.allowed) {
-        return {
-          output: `Permission denied: ${perm.reason}`,
-          exitCode: 1,
-        };
+        return { output: `Permission denied: ${perm.reason}`, exitCode: 1 };
       }
     }
-    // If commandPath is empty (e.g. only flags like --help), let confluence handle it.
+
+    // ── Space-level permission check ──────────────────────────────────────
+    if (subcommand) {
+      // Build the profile args that should be prepended to any info lookups
+      const profileArgsForLookup: string[] =
+        defaultProfile && !args.includes("--profile")
+          ? ["--profile", defaultProfile]
+          : args.includes("--profile")
+          ? ["--profile", extractFlag(args, "--profile") ?? defaultProfile ?? ""]
+          : [];
+
+      const spacePerm = await enforceSpacePolicy(
+        subcommand,
+        args,
+        config,
+        executor,
+        timeoutMs,
+        spaceCache,
+        profileArgsForLookup
+      );
+      if (!spacePerm.allowed) {
+        return { output: `Permission denied: ${spacePerm.reason}`, exitCode: 1 };
+      }
+    }
 
     // ── Inject default profile if configured and not already in args ───────
     let finalArgs = [...args];
     if (defaultProfile && !finalArgs.includes("--profile")) {
-      // --profile must come before the subcommand
       finalArgs = ["--profile", defaultProfile, ...finalArgs];
     }
 
