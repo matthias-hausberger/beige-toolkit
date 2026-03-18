@@ -89,14 +89,14 @@ export interface ProcessManagerLike {
 
 export interface ChromeContext {
   processManager?: ProcessManagerLike;
-  /** Absolute path to the workspace root on the host. Default: process.cwd(). */
-  workspaceDir?: string;
 }
 
 interface IncomingSessionContext {
   sessionKey?: string;
   channel?: string;
   agentName?: string;
+  agentDir?: string;
+  workspaceDir?: string;
 }
 
 export type ToolHandler = (
@@ -244,9 +244,21 @@ function resolveScreenshotPath(workspaceDir: string): string {
 // Output formatting
 // ---------------------------------------------------------------------------
 
+/**
+ * Convert a host-side workspace path to the sandbox-side /workspace path.
+ * E.g. /host/path/to/.beige/agents/beige/workspace/media/inbound/foo.png
+ *      -> /workspace/media/inbound/foo.png
+ */
+function hostPathToSandbox(hostPath: string, workspaceDir: string): string {
+  // workspaceDir is the host-side path, e.g. /host/.beige/agents/beige/workspace
+  // Replace it with /workspace
+  return hostPath.replace(workspaceDir, "/workspace");
+}
+
 function formatMcpResult(
   result: { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> },
-  screenshotFilePath?: string
+  screenshotFilePath?: string,
+  workspaceDir?: string
 ): string {
   const parts: string[] = [];
 
@@ -254,11 +266,13 @@ function formatMcpResult(
     if (item.type === "text" && item.text) {
       parts.push(item.text);
     } else if (item.type === "image") {
-      // Image was saved to disk — point the agent at the in-sandbox path
-      const sandboxPath = screenshotFilePath
-        ? `/${SCREENSHOT_DIR}/${screenshotFilePath.split(SCREENSHOT_DIR).pop()?.replace(/^\//, "")}`
-        : "(unknown path)";
-      parts.push(`Screenshot saved to: ${sandboxPath}`);
+      // Image was saved to disk — give the agent the sandbox path
+      if (screenshotFilePath && workspaceDir) {
+        const sandboxPath = hostPathToSandbox(screenshotFilePath, workspaceDir);
+        parts.push(`Screenshot saved to: ${sandboxPath}`);
+      } else {
+        parts.push(`Screenshot saved to: /workspace/${SCREENSHOT_DIR}/ (exact filename unknown)`);
+      }
     }
   }
 
@@ -312,11 +326,14 @@ export function createHandler(
   const timeoutMs = (config.timeout ?? 60) * 1000;
   const idleTimeoutMs = (config.idleTimeoutMinutes ?? 30) * 60 * 1000;
 
+  // Resolve beige data dir for browser profile storage
+  const beigeDataDir = resolveBeigeDataDir();
+
   // Build the real ProcessManager if no stub is injected
   const processManager: ProcessManagerLike =
     context.processManager ??
     new ProcessManager({
-      beigeDataDir: resolveBeigeDataDir(),
+      beigeDataDir,
       version: config.version ?? "latest",
       slim: config.slim ?? false,
       headless: config.headless ?? false,
@@ -328,12 +345,6 @@ export function createHandler(
       idleTimeoutMs,
     });
 
-  // Workspace dir for screenshot saving
-  const workspaceDir =
-    context.workspaceDir ??
-    process.env.BEIGE_WORKSPACE ??
-    process.cwd();
-
   return async (
     args: string[],
     _toolConfig?: Record<string, unknown>,
@@ -341,13 +352,14 @@ export function createHandler(
   ): Promise<{ output: string; exitCode: number }> => {
     // ── Identify agent ──────────────────────────────────────────────────────
     const agentName = sessionContext?.agentName ?? "unknown";
+    const workspaceDir = sessionContext?.workspaceDir;
 
-    if (agentName === "unknown") {
+    if (agentName === "unknown" || !workspaceDir) {
       return {
         output: [
           "Error: agent identity unknown.",
-          "This tool requires BEIGE_AGENT_NAME to be set in the sandbox environment.",
-          "Ensure you are running beige >= 0.1.3.",
+          "This tool requires BEIGE_AGENT_NAME and BEIGE_WORKSPACE_DIR to be set.",
+          "Ensure you are running beige >= 0.1.4.",
         ].join("\n"),
         exitCode: 1,
       };
@@ -430,7 +442,7 @@ export function createHandler(
       );
       managed.touch();
 
-      const output = formatMcpResult(result, screenshotFilePath);
+      const output = formatMcpResult(result, screenshotFilePath, workspaceDir);
       const exitCode = result.isError ? 1 : 0;
       return { output, exitCode };
     } catch (err) {

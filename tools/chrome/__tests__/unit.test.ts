@@ -61,13 +61,20 @@ function makeProcessManager(
 
 const SESSION = { agentName: "coder" };
 
-let tmpDir: string;
+let tmpBeigeDir: string;
+let tmpWorkspaceDir: string;
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "chrome-test-"));
+  tmpBeigeDir = mkdtempSync(join(tmpdir(), "chrome-test-"));
+  tmpWorkspaceDir = join(tmpBeigeDir, "agents", "coder", "workspace");
 });
 afterEach(() => {
-  try { rmSync(tmpDir, { recursive: true }); } catch {}
+  try { rmSync(tmpBeigeDir, { recursive: true }); } catch {}
 });
+
+/** Build session context with workspaceDir for a given agent name */
+function makeSession(agentName: string): { agentName: string; workspaceDir: string } {
+  return { agentName, workspaceDir: join(tmpBeigeDir, "agents", agentName, "workspace") };
+}
 
 // ---------------------------------------------------------------------------
 // parseArgs
@@ -138,7 +145,7 @@ describe("parseArgs", () => {
 describe("agent identity", () => {
   it("returns error when agentName is unknown", async () => {
     const pm = makeProcessManager();
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
+    const handler = createHandler({}, { processManager: pm });
     const result = await handler(["take_snapshot"], undefined, {});
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("agent identity unknown");
@@ -147,8 +154,8 @@ describe("agent identity", () => {
 
   it("proceeds when agentName is set", async () => {
     const pm = makeProcessManager();
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    const result = await handler(["take_snapshot"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    const result = await handler(["take_snapshot"], undefined, makeSession("coder"));
     expect(result.exitCode).toBe(0);
     expect(pm.spawnCount).toBe(1);
   });
@@ -161,8 +168,8 @@ describe("agent identity", () => {
 describe("no args", () => {
   it("returns usage when called with empty args", async () => {
     const pm = makeProcessManager();
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    const result = await handler([], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    const result = await handler([], undefined, makeSession("coder"));
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("Usage:");
     expect(pm.spawnCount).toBe(0);
@@ -179,8 +186,8 @@ describe("--list-tools", () => {
       { name: "take_snapshot", description: "Take an a11y snapshot" },
       { name: "navigate_page", description: "Navigate to URL" },
     ]);
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    const result = await handler(["--list-tools"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    const result = await handler(["--list-tools"], undefined, makeSession("coder"));
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("take_snapshot");
     expect(result.output).toContain("navigate_page");
@@ -189,8 +196,8 @@ describe("--list-tools", () => {
 
   it("returns message when no tools available", async () => {
     const pm = makeProcessManager({}, []);
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    const result = await handler(["--list-tools"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    const result = await handler(["--list-tools"], undefined, makeSession("coder"));
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("No tools");
   });
@@ -205,9 +212,9 @@ describe("permission checks", () => {
     const pm = makeProcessManager();
     const handler = createHandler(
       { denyTools: ["evaluate_script"] },
-      { processManager: pm, workspaceDir: tmpDir }
+      { processManager: pm }
     );
-    const result = await handler(["evaluate_script", "--function", "() => 1"], undefined, SESSION);
+    const result = await handler(["evaluate_script", "--function", "() => 1"], undefined, makeSession("coder"));
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("Permission denied");
     expect(result.output).toContain("evaluate_script");
@@ -218,9 +225,9 @@ describe("permission checks", () => {
     const pm = makeProcessManager();
     const handler = createHandler(
       { allowTools: ["take_snapshot", "navigate_page"] },
-      { processManager: pm, workspaceDir: tmpDir }
+      { processManager: pm }
     );
-    const result = await handler(["evaluate_script", "--function", "() => 1"], undefined, SESSION);
+    const result = await handler(["evaluate_script", "--function", "() => 1"], undefined, makeSession("coder"));
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("Permission denied");
     expect(pm.calls).toHaveLength(0);
@@ -230,9 +237,9 @@ describe("permission checks", () => {
     const pm = makeProcessManager();
     const handler = createHandler(
       { allowTools: ["take_snapshot"] },
-      { processManager: pm, workspaceDir: tmpDir }
+      { processManager: pm }
     );
-    const result = await handler(["take_snapshot"], undefined, SESSION);
+    const result = await handler(["take_snapshot"], undefined, makeSession("coder"));
     expect(result.exitCode).toBe(0);
     expect(pm.calls).toHaveLength(1);
   });
@@ -241,9 +248,9 @@ describe("permission checks", () => {
     const pm = makeProcessManager();
     const handler = createHandler(
       { allowTools: ["evaluate_script"], denyTools: ["evaluate_script"] },
-      { processManager: pm, workspaceDir: tmpDir }
+      { processManager: pm }
     );
-    const result = await handler(["evaluate_script"], undefined, SESSION);
+    const result = await handler(["evaluate_script"], undefined, makeSession("coder"));
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("Permission denied");
     expect(pm.calls).toHaveLength(0);
@@ -251,8 +258,8 @@ describe("permission checks", () => {
 
   it("allows all tools when neither allowTools nor denyTools is set", async () => {
     const pm = makeProcessManager();
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    const result = await handler(["evaluate_script", "--function", "() => 1"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    const result = await handler(["evaluate_script", "--function", "() => 1"], undefined, makeSession("coder"));
     expect(result.exitCode).toBe(0);
     expect(pm.calls).toHaveLength(1);
   });
@@ -265,8 +272,8 @@ describe("permission checks", () => {
 describe("tool invocation", () => {
   it("passes tool name and params to process manager", async () => {
     const pm = makeProcessManager();
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    await handler(["navigate_page", "--url", "https://example.com"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    await handler(["navigate_page", "--url", "https://example.com"], undefined, makeSession("coder"));
     expect(pm.calls[0].toolName).toBe("navigate_page");
     expect(pm.calls[0].args.url).toBe("https://example.com");
   });
@@ -278,8 +285,8 @@ describe("tool invocation", () => {
         isError: false,
       },
     });
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    const result = await handler(["take_snapshot"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    const result = await handler(["take_snapshot"], undefined, makeSession("coder"));
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("example.com");
   });
@@ -291,8 +298,8 @@ describe("tool invocation", () => {
         isError: true,
       },
     });
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    const result = await handler(["navigate_page", "--url", "https://invalid-domain-xyz.com"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    const result = await handler(["navigate_page", "--url", "https://invalid-domain-xyz.com"], undefined, makeSession("coder"));
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("ERR_NAME_NOT_RESOLVED");
   });
@@ -302,8 +309,8 @@ describe("tool invocation", () => {
       async getOrCreate() { throw new Error("npx not found"); },
       killAll() {},
     };
-    const handler = createHandler({}, { processManager: failPm, workspaceDir: tmpDir });
-    const result = await handler(["take_snapshot"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: failPm });
+    const result = await handler(["take_snapshot"], undefined, makeSession("coder"));
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("failed to start chrome-devtools-mcp");
     expect(result.output).toContain("npx not found");
@@ -329,8 +336,8 @@ describe("tool invocation", () => {
       },
       killAll() {},
     };
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    const result = await handler(["take_snapshot"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    const result = await handler(["take_snapshot"], undefined, makeSession("coder"));
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("exited unexpectedly");
     expect(result.output).toContain("restarted on your next call");
@@ -344,8 +351,8 @@ describe("tool invocation", () => {
 describe("screenshot path injection", () => {
   it("injects filePath into take_screenshot params", async () => {
     const pm = makeProcessManager();
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    await handler(["take_screenshot"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    await handler(["take_screenshot"], undefined, makeSession("coder"));
     const args = pm.calls[0].args;
     expect(typeof args.filePath).toBe("string");
     expect(args.filePath as string).toContain("media/inbound");
@@ -354,8 +361,8 @@ describe("screenshot path injection", () => {
 
   it("does not override filePath if agent supplies one", async () => {
     const pm = makeProcessManager();
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    await handler(["take_screenshot", "--filePath", "/custom/path.png"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    await handler(["take_screenshot", "--filePath", "/custom/path.png"], undefined, makeSession("coder"));
     expect(pm.calls[0].args.filePath).toBe("/custom/path.png");
   });
 
@@ -366,22 +373,24 @@ describe("screenshot path injection", () => {
         isError: false,
       },
     });
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    const result = await handler(["take_screenshot"], undefined, SESSION);
-    expect(result.output).toContain("media/inbound");
+    const handler = createHandler({}, { processManager: pm });
+    const result = await handler(["take_screenshot"], undefined, makeSession("coder"));
+    // Should return sandbox path, not host path
+    expect(result.output).toContain("/workspace/media/inbound");
+    expect(result.output).not.toContain(tmpBeigeDir);
   });
 
   it("does not inject filePath for non-screenshot tools", async () => {
     const pm = makeProcessManager();
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    await handler(["take_snapshot"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    await handler(["take_snapshot"], undefined, makeSession("coder"));
     expect(pm.calls[0].args.filePath).toBeUndefined();
   });
 
   it("also injects filePath for slim-mode screenshot tool name", async () => {
     const pm = makeProcessManager();
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    await handler(["screenshot"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    await handler(["screenshot"], undefined, makeSession("coder"));
     expect(pm.calls[0].args.filePath).toBeDefined();
   });
 });
@@ -401,8 +410,8 @@ describe("multiple content items", () => {
         isError: false,
       },
     });
-    const handler = createHandler({}, { processManager: pm, workspaceDir: tmpDir });
-    const result = await handler(["take_snapshot"], undefined, SESSION);
+    const handler = createHandler({}, { processManager: pm });
+    const result = await handler(["take_snapshot"], undefined, makeSession("coder"));
     expect(result.output).toContain("Part one");
     expect(result.output).toContain("Part two");
     expect(result.output).toContain("---");
