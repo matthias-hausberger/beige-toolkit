@@ -9,8 +9,9 @@
  *
  * On the first tool call for an agent, the handler:
  *   1. Spawns `npx chrome-devtools-mcp@<version>` as a subprocess.
- *   2. Performs the MCP initialize handshake over its stdin/stdout.
- *   3. Caches the live McpClient for subsequent calls (reused across calls).
+ *   2. Writes Chrome `Default/Preferences` to set the download directory.
+ *   3. Performs the MCP initialize handshake over its stdin/stdout.
+ *   4. Caches the live McpClient for subsequent calls (reused across calls).
  *
  * The process is kept alive until:
  *   - It has been idle for more than `idleTimeoutMinutes` (default 30).
@@ -41,6 +42,18 @@
  * the agent's cwd injected via BEIGE_WORKSPACE env var, falling back to
  * process.cwd().  The tool injects a suitable filePath into the MCP params
  * automatically — agents do not need to supply it.
+ *
+ * ── Downloads ──────────────────────────────────────────────────────────────
+ *
+ * Chrome's download directory is configured via the `Default/Preferences`
+ * file written into the browser profile before Chrome launches.  This sets
+ * `download.default_directory` globally for the browser process.  Any file
+ * the agent downloads via Chrome (e.g. by clicking a download link) will
+ * appear in /workspace/media/inbound/ inside the sandbox.
+ *
+ * Note: the CDP command `Browser.setDownloadBehavior` is NOT used because
+ * it is scoped to the CDP connection it was sent on — a side-channel
+ * WebSocket cannot influence Puppeteer's own connection.
  *
  * ── Permission model ─────────────────────────────────────────────────────────
  *
@@ -83,7 +96,7 @@ export interface ChromeConfig {
 
 /** Subset of ProcessManager used — injectable for testing. */
 export interface ProcessManagerLike {
-  getOrCreate(agentName: string): Promise<ManagedProcess>;
+  getOrCreate(agentName: string, workspaceDir?: string): Promise<ManagedProcess>;
   killAll(): void;
 }
 
@@ -376,7 +389,7 @@ export function createHandler(
     // ── Get or create the MCP process for this agent ─────────────────────────
     let managed: ManagedProcess;
     try {
-      managed = await processManager.getOrCreate(agentName);
+      managed = await processManager.getOrCreate(agentName, workspaceDir);
     } catch (err) {
       return {
         output: [

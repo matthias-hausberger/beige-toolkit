@@ -5,11 +5,12 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createHandler, parseArgs, type ProcessManagerLike } from "../index.js";
 import type { ManagedProcess } from "../process-manager.js";
+import { setChromeDownloadPreferences } from "../process-manager.js";
 import type { McpToolCallResult, McpTool } from "../mcp-client.js";
 
 // ---------------------------------------------------------------------------
@@ -24,10 +25,12 @@ function makeProcessManager(
 ): ProcessManagerLike & {
   calls: Array<{ toolName: string; args: Record<string, unknown> }>;
   spawnCount: number;
+  lastWorkspaceDir: string | undefined;
 } {
   const calls: Array<{ toolName: string; args: Record<string, unknown> }> = [];
   let spawnCount = 0;
   let closed = false;
+  let lastWorkspaceDir: string | undefined;
 
   const client = {
     get isClosed() { return closed; },
@@ -51,8 +54,10 @@ function makeProcessManager(
   return {
     calls,
     get spawnCount() { return spawnCount; },
-    async getOrCreate(_agentName: string) {
+    get lastWorkspaceDir() { return lastWorkspaceDir; },
+    async getOrCreate(_agentName: string, _workspaceDir?: string) {
       spawnCount++;
+      lastWorkspaceDir = _workspaceDir;
       return managed;
     },
     killAll() { closed = true; },
@@ -415,5 +420,91 @@ describe("multiple content items", () => {
     expect(result.output).toContain("Part one");
     expect(result.output).toContain("Part two");
     expect(result.output).toContain("---");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Download directory — workspaceDir forwarding
+// ---------------------------------------------------------------------------
+
+describe("download directory configuration", () => {
+  it("passes workspaceDir to processManager.getOrCreate", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler({}, { processManager: pm });
+    const session = makeSession("coder");
+    await handler(["take_snapshot"], undefined, session);
+    expect(pm.lastWorkspaceDir).toBe(session.workspaceDir);
+  });
+
+  it("passes workspaceDir on every call", async () => {
+    const pm = makeProcessManager();
+    const handler = createHandler({}, { processManager: pm });
+    const session1 = makeSession("coder");
+    const session2 = makeSession("reviewer");
+    await handler(["take_snapshot"], undefined, session1);
+    expect(pm.lastWorkspaceDir).toBe(session1.workspaceDir);
+    await handler(["take_snapshot"], undefined, session2);
+    expect(pm.lastWorkspaceDir).toBe(session2.workspaceDir);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// setChromeDownloadPreferences
+// ---------------------------------------------------------------------------
+
+describe("setChromeDownloadPreferences", () => {
+  it("creates Default/Preferences with download.default_directory", () => {
+    const profileDir = join(tmpBeigeDir, "profile");
+    mkdirSync(profileDir, { recursive: true });
+    const downloadDir = "/workspace/media/inbound";
+
+    setChromeDownloadPreferences(profileDir, downloadDir);
+
+    const prefsPath = join(profileDir, "Default", "Preferences");
+    expect(existsSync(prefsPath)).toBe(true);
+
+    const prefs = JSON.parse(readFileSync(prefsPath, "utf-8"));
+    expect(prefs.download.default_directory).toBe(downloadDir);
+    expect(prefs.download.prompt_for_download).toBe(false);
+    expect(prefs.savefile.default_directory).toBe(downloadDir);
+  });
+
+  it("preserves existing preferences when patching", () => {
+    const profileDir = join(tmpBeigeDir, "profile");
+    const defaultDir = join(profileDir, "Default");
+    mkdirSync(defaultDir, { recursive: true });
+
+    const existing = {
+      browser: { show_home_button: true },
+      download: { default_directory: "/old/path", some_other_setting: 42 },
+      extensions: { ui: { developer_mode: true } },
+    };
+    writeFileSync(join(defaultDir, "Preferences"), JSON.stringify(existing), "utf-8");
+
+    setChromeDownloadPreferences(profileDir, "/new/path");
+
+    const prefs = JSON.parse(readFileSync(join(defaultDir, "Preferences"), "utf-8"));
+    expect(prefs.download.default_directory).toBe("/new/path");
+    expect(prefs.download.some_other_setting).toBe(42);
+    expect(prefs.browser.show_home_button).toBe(true);
+    expect(prefs.extensions.ui.developer_mode).toBe(true);
+  });
+
+  it("handles corrupted Preferences file gracefully", () => {
+    const profileDir = join(tmpBeigeDir, "profile");
+    const defaultDir = join(profileDir, "Default");
+    mkdirSync(defaultDir, { recursive: true });
+    writeFileSync(join(defaultDir, "Preferences"), "not valid json{{{", "utf-8");
+
+    setChromeDownloadPreferences(profileDir, "/download/path");
+
+    const prefs = JSON.parse(readFileSync(join(defaultDir, "Preferences"), "utf-8"));
+    expect(prefs.download.default_directory).toBe("/download/path");
+  });
+
+  it("creates Default directory if it does not exist", () => {
+    const profileDir = join(tmpBeigeDir, "profile-new");
+    setChromeDownloadPreferences(profileDir, "/download/path");
+    expect(existsSync(join(profileDir, "Default", "Preferences"))).toBe(true);
   });
 });

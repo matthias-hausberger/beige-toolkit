@@ -7,12 +7,27 @@
  *   - Killed automatically after a configurable idle timeout.
  *   - NOT silently restarted on crash — callers receive an error and the
  *     process is cleaned up so the next call triggers a fresh spawn.
+ *
+ * ── Download directory ──────────────────────────────────────────────────────
+ *
+ * To route Chrome file-downloads into the agent's workspace, the manager
+ * writes Chrome's `Default/Preferences` JSON file into the profile directory
+ * **before** chrome-devtools-mcp (and thus Puppeteer/Chrome) is started.
+ * This sets `download.default_directory` so that Chrome saves all downloads
+ * to `{workspaceDir}/media/inbound/` without prompting.
+ *
+ * Why not CDP `Browser.setDownloadBehavior`?  That command is scoped to the
+ * CDP *connection* it was sent on.  A side-channel WebSocket cannot influence
+ * Puppeteer's own connection, so downloads triggered through Puppeteer would
+ * still land in the default location.  Chrome Preferences, by contrast, are
+ * read once at startup and apply globally — regardless of which CDP
+ * connection initiates the download.
  */
 
 import { spawn } from "child_process";
-import { mkdirSync } from "fs";
+import { mkdirSync, readFileSync, existsSync, writeFileSync } from "fs";
 import { homedir } from "os";
-import { resolve } from "path";
+import { resolve, join } from "path";
 import { McpClient, type McpClientLike } from "./mcp-client.ts";
 
 // ---------------------------------------------------------------------------
@@ -65,8 +80,12 @@ export class ProcessManager {
   /**
    * Get or create the MCP process for the given agent.
    * Throws if the process has crashed (call again to respawn).
+   *
+   * @param workspaceDir — host-side workspace path for the agent. Used to
+   *   configure Chrome's download directory so that downloads land in
+   *   `{workspaceDir}/media/inbound/`.
    */
-  async getOrCreate(agentName: string): Promise<ManagedProcess> {
+  async getOrCreate(agentName: string, workspaceDir?: string): Promise<ManagedProcess> {
     const existing = this.processes.get(agentName);
     if (existing && !existing.client.isClosed) {
       return existing;
@@ -78,7 +97,7 @@ export class ProcessManager {
       this.processes.delete(agentName);
     }
 
-    const managed = await this.spawn(agentName);
+    const managed = await this.spawn(agentName, workspaceDir);
     this.processes.set(agentName, managed);
     return managed;
   }
@@ -106,7 +125,7 @@ export class ProcessManager {
 
   // ── Private ───────────────────────────────────────────────────────────────
 
-  private async spawn(agentName: string): Promise<ManagedProcess> {
+  private async spawn(agentName: string, workspaceDir?: string): Promise<ManagedProcess> {
     const { config } = this;
 
     // Profile directory — one per agent, persistent across restarts.
@@ -116,6 +135,17 @@ export class ProcessManager {
       agentName
     );
     mkdirSync(profileDir, { recursive: true });
+
+    // Configure Chrome's download directory via Preferences.
+    // This must happen BEFORE Chrome starts.  chrome-devtools-mcp launches
+    // Chrome lazily on the first MCP tool call, so writing the file here
+    // (during spawn, before the MCP handshake) guarantees the prefs are in
+    // place when Chrome eventually reads them.
+    if (workspaceDir) {
+      const downloadDir = join(workspaceDir, "media", "inbound");
+      mkdirSync(downloadDir, { recursive: true });
+      setChromeDownloadPreferences(profileDir, downloadDir);
+    }
 
     // Build CLI args for chrome-devtools-mcp
     const mcpArgs = buildMcpArgs(config, profileDir);
@@ -211,6 +241,51 @@ function buildMcpArgs(config: ProcessConfig, profileDir: string): string[] {
   if (config.noUsageStatistics) args.push("--no-usage-statistics");
 
   return args;
+}
+
+// ---------------------------------------------------------------------------
+// Chrome Preferences — download directory
+// ---------------------------------------------------------------------------
+
+/**
+ * Write (or patch) Chrome's `Default/Preferences` file to set the download
+ * directory.  Chrome reads this JSON file once at startup, so it must be
+ * written **before** the browser process is launched.
+ *
+ * If a `Preferences` file already exists (from a previous session) the
+ * download-related keys are merged in; all other preferences are preserved.
+ */
+export function setChromeDownloadPreferences(
+  profileDir: string,
+  downloadDir: string
+): void {
+  const defaultDir = join(profileDir, "Default");
+  mkdirSync(defaultDir, { recursive: true });
+
+  const prefsPath = join(defaultDir, "Preferences");
+
+  let prefs: Record<string, unknown> = {};
+  if (existsSync(prefsPath)) {
+    try {
+      prefs = JSON.parse(readFileSync(prefsPath, "utf-8"));
+    } catch {
+      // Corrupted file — start fresh
+      prefs = {};
+    }
+  }
+
+  // Patch the download section
+  const download = (prefs.download ?? {}) as Record<string, unknown>;
+  download.default_directory = downloadDir;
+  download.prompt_for_download = false;
+  prefs.download = download;
+
+  // Also patch savefile.default_directory (used by "Save As" dialogs)
+  const savefile = (prefs.savefile ?? {}) as Record<string, unknown>;
+  savefile.default_directory = downloadDir;
+  prefs.savefile = savefile;
+
+  writeFileSync(prefsPath, JSON.stringify(prefs), "utf-8");
 }
 
 // ---------------------------------------------------------------------------

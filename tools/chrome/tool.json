@@ -1,6 +1,6 @@
 {
   "name": "chrome",
-  "description": "Control a Chrome browser via the chrome-devtools-mcp server. Supports navigation, screenshots, DOM inspection, JavaScript evaluation, network monitoring, performance analysis, and more. Each agent gets its own persistent browser profile. The browser process is started on first use and closed automatically after an idle timeout.",
+  "description": "Control a Chrome browser via the chrome-devtools-mcp server. Supports navigation, screenshots, DOM inspection, JavaScript evaluation, network monitoring, performance analysis, and more. Each agent gets its own persistent browser profile. The browser process is started on first use and closed automatically after an idle timeout. File downloads are saved to /workspace/media/inbound/.",
   "commands": [
     "take_snapshot                                            — take an accessibility tree snapshot of the current page (use this first)",
     "navigate_page --url <url>                               — navigate to a URL",
