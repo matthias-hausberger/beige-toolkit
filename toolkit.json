@@ -10,6 +10,7 @@
     "./tools/agent-to-agent",
     "./tools/sessions",
     "./tools/slack",
+    "./tools/confluence",
     "./tools/chrome"
   ]
 }
