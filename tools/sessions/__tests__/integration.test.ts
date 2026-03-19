@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { loadToolManifest } from "../../../test-utils/loadToolkitManifest.js";
+import { loadToolManifest } from "../../../test-utils/loadManifest.js";
 import { assertValidToolManifest } from "../../../test-utils/assertions.js";
 import { createHandler, type SessionStoreLike, type SessionEntryLike, type SessionInfoLike } from "../index.js";
 

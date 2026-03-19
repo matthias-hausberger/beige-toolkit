@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { loadToolManifest } from "../../../test-utils/loadToolkitManifest.js";
+import { loadToolManifest } from "../../../test-utils/loadManifest.js";
 import { assertValidToolManifest } from "../../../test-utils/assertions.js";
 import { createHandler, type ProcessManagerLike } from "../index.js";
 import type { ManagedProcess } from "../process-manager.js";

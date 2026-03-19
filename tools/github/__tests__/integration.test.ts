@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { resolve } from "path";
 import { createHandler } from "../index.js";
 import { createFakeGhClient } from "../../../test-utils/createFakeGhClient.js";
-import { loadToolManifest } from "../../../test-utils/loadToolkitManifest.js";
+import { loadToolManifest } from "../../../test-utils/loadManifest.js";
 import { assertValidToolManifest, assertSuccess, assertFailure } from "../../../test-utils/assertions.js";
 
 const TOOL_DIR = resolve(import.meta.dirname, "..");

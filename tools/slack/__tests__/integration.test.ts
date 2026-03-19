@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { loadToolManifest } from "../../../test-utils/loadToolkitManifest.js";
+import { loadToolManifest } from "../../../test-utils/loadManifest.js";
 import { assertValidToolManifest } from "../../../test-utils/assertions.js";
 import { createHandler, type Executor } from "../index.js";
 

@@ -57,14 +57,8 @@ jobs:
             echo "npm_tag=latest" >> $GITHUB_OUTPUT
           fi
 
-      - name: Update package.json and toolkit.json versions
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          # npm version handles package.json
-          npm version "$VERSION" --no-git-tag-version --allow-same-version
-          # jq handles toolkit.json (npm version doesn't touch it)
-          jq --arg v "$VERSION" '.version = $v' toolkit.json > toolkit.json.tmp
-          mv toolkit.json.tmp toolkit.json
+      - name: Update package.json version
+        run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
 
       - name: Publish to npm
         run: pnpm publish --no-git-checks --provenance --tag ${{ steps.version.outputs.npm_tag }}
@@ -84,7 +78,7 @@ jobs:
           echo "Target branch: $BRANCH"
 
           git checkout "$BRANCH"
-          git add package.json toolkit.json
+          git add package.json
           git commit -m "chore: update version to ${{ steps.version.outputs.version }}"
           git push origin "$BRANCH"
         env:
