@@ -2,6 +2,24 @@
 
 Spawn another Beige agent (or a sub-agent of yourself) and hold a multi-turn conversation with it. Each call returns the target agent's full response plus a session key for follow-up turns.
 
+## Installation
+
+Install this tool individually:
+
+```bash
+beige tools install github:matthias-hausberger/beige-toolkit/tools/spawn
+```
+
+Or install all tools from the toolkit:
+
+```bash
+# From npm
+beige tools install npm:@matthias-hausberger/beige-toolkit
+
+# From GitHub
+beige tools install github:matthias-hausberger/beige-toolkit
+```
+
 ## Configuration
 
 | Key | Default | Description |
@@ -41,8 +59,6 @@ Each target can override the default `maxDepth` independently. For example, you 
 ```json5
 tools: {
   spawn: {
-    path: "~/.beige/toolkits/beige-toolkit/tools/spawn",
-    target: "gateway",
     config: {
       targets: {
         reviewer: {},
@@ -76,8 +92,6 @@ Since beige supports per-agent `toolConfigs` overrides (deep-merged with the top
 ```json5
 tools: {
   spawn: {
-    path: "~/.beige/toolkits/beige-toolkit/tools/spawn",
-    target: "gateway",
     config: {
       // Baseline: every agent can spawn itself as a sub-agent
       targets: {

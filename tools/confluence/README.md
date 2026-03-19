@@ -2,6 +2,24 @@
 
 Interact with Atlassian Confluence via the [`confluence-cli`](https://github.com/pchuri/confluence-cli) binary installed on the gateway host. Agents pass confluence arguments directly; the tool enforces two independent, optional permission layers before executing anything.
 
+## Installation
+
+Install this tool individually:
+
+```bash
+beige tools install github:matthias-hausberger/beige-toolkit/tools/confluence
+```
+
+Or install all tools from the toolkit:
+
+```bash
+# From npm
+beige tools install npm:@matthias-hausberger/beige-toolkit
+
+# From GitHub
+beige tools install github:matthias-hausberger/beige-toolkit
+```
+
 ## Configuration
 
 | Key | Default | Description |
@@ -127,8 +145,6 @@ Use beige's `toolConfigs` to give different agents different Confluence permissi
 ```json5
 tools: {
   confluence: {
-    path: "~/.beige/toolkits/beige-toolkit/tools/confluence",
-    target: "gateway",
     config: {
       // Baseline: read-only, all spaces
       denyCommands: ["create", "create-child", "update", "delete", "move", "copy-tree",

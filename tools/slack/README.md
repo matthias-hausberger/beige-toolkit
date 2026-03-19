@@ -2,6 +2,24 @@
 
 Interact with Slack workspaces via the [`slackcli`](https://github.com/shaharia-lab/slackcli) binary installed on the gateway host. Agents pass slackcli arguments directly; the tool enforces a command-level permission layer before executing anything.
 
+## Installation
+
+Install this tool individually:
+
+```bash
+beige tools install github:matthias-hausberger/beige-toolkit/tools/slack
+```
+
+Or install all tools from the toolkit:
+
+```bash
+# From npm
+beige tools install npm:@matthias-hausberger/beige-toolkit
+
+# From GitHub
+beige tools install github:matthias-hausberger/beige-toolkit
+```
+
 ## Configuration
 
 | Key | Default | Description |
@@ -74,8 +92,6 @@ Use beige's `toolConfigs` to give different agents different Slack permissions:
 ```json5
 tools: {
   slack: {
-    path: "~/.beige/toolkits/beige-toolkit/tools/slack",
-    target: "gateway",
     config: {
       // Baseline: read-only, no sending
       denyCommands: ["messages send", "messages draft",

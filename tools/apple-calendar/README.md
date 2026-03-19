@@ -2,6 +2,24 @@
 
 Read events from macOS Calendar (Apple Calendar). Uses a compiled Swift binary that reads directly from the EventKit store — fast (~0.1–0.5s per query), supports all calendar sources (iCloud, Google, Exchange, CalDAV, subscribed, birthdays). Read-only — no event creation or modification.
 
+## Installation
+
+Install this tool individually:
+
+```bash
+beige tools install github:matthias-hausberger/beige-toolkit/tools/apple-calendar
+```
+
+Or install all tools from the toolkit:
+
+```bash
+# From npm
+beige tools install npm:@matthias-hausberger/beige-toolkit
+
+# From GitHub
+beige tools install github:matthias-hausberger/beige-toolkit
+```
+
 ## Configuration
 
 | Key | Default | Description |
@@ -79,8 +97,6 @@ Use beige's `toolConfigs` to give different agents different calendar permission
 ```json5
 tools: {
   "apple-calendar": {
-    path: "~/.beige/toolkits/beige-toolkit/tools/apple-calendar",
-    target: "gateway",
     config: {
       // Baseline: all commands allowed
     },
