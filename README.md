@@ -2,6 +2,22 @@
 
 🛠️ A collection of tools for [Beige](https://github.com/matthias-hausberger/beige) agents.
 
+Beige is an open-source AI agent framework with a gateway/sandbox architecture. This toolkit provides gateway-side tools that give agents access to external services — GitHub, Slack, Confluence, Chrome, macOS Calendar, conversation history, and other agents.
+
+All tools run on the **gateway** (host machine), not inside agent sandboxes. Each tool supports fine-grained access control via config-level allow/deny lists so you can scope exactly what each agent is permitted to do.
+
+## Tools
+
+| Tool | Description | Requires |
+|------|-------------|----------|
+| [github](./tools/github/README.md) | Interact with GitHub via the `gh` CLI — repos, issues, PRs, releases, workflow runs, and more. Repository deletion is permanently blocked. Raw API access is off by default. | [`gh`](https://cli.github.com/) installed and authenticated |
+| [slack](./tools/slack/README.md) | Interact with Slack workspaces — list conversations, read message history, send messages, add reactions. Access controlled via command-level allow/deny lists. | `slackcli` installed and authenticated |
+| [confluence](./tools/confluence/README.md) | Read and write Atlassian Confluence — pages, spaces, search, attachments, comments, content properties, and exports. Supports both command-level and space-level access control. | `confluence-cli` installed and authenticated |
+| [chrome](./tools/chrome/README.md) | Control a Chrome browser — navigation, screenshots, DOM inspection, JS evaluation, network monitoring, performance analysis. Each agent gets its own persistent browser profile. | Google Chrome installed |
+| [apple-calendar](./tools/apple-calendar/README.md) | Read events from macOS Calendar — supports iCloud, Google, Exchange, and subscribed calendars. List calendars, view events by date/range, and search by title, notes, or location. Read-only. | macOS, Xcode Command Line Tools |
+| [sessions](./tools/sessions/README.md) | Browse and search conversation history. Agents can only access their own sessions — listing, full message retrieval, and pattern-based search. | — |
+| [agent-to-agent](./tools/agent-to-agent/README.md) | Invoke other Beige agents as sub-agents with multi-turn conversations. Depth-limited and opt-in — no targets allowed until explicitly configured. | — |
+
 ## Installation
 
 ```bash
@@ -15,12 +31,6 @@ beige install github:matthias-hausberger/beige-toolkit
 beige install ./path/to/beige-toolkit
 ```
 
-## Tools
-
-| Tool | Description |
-|------|-------------|
-| [github](./tools/github/README.md) | Interact with GitHub via the `gh` CLI — repos, issues, PRs, releases, and more |
-
 ## Usage
 
 After installing, add tools to your agents in `config.json5`:
@@ -32,11 +42,19 @@ After installing, add tools to your agents in `config.json5`:
       path: "~/.beige/toolkits/beige-toolkit/tools/github",
       target: "gateway",
     },
+    "apple-calendar": {
+      path: "~/.beige/toolkits/beige-toolkit/tools/apple-calendar",
+      target: "gateway",
+    },
+    slack: {
+      path: "~/.beige/toolkits/beige-toolkit/tools/slack",
+      target: "gateway",
+    },
   },
   agents: {
     assistant: {
       model: { provider: "anthropic", model: "claude-sonnet-4-6" },
-      tools: ["github"],
+      tools: ["github", "apple-calendar", "slack"],
     },
   },
 }
@@ -49,6 +67,43 @@ beige install @matthias-hausberger/beige-toolkit
 ```
 
 Then reference them by name in your agent config.
+
+## Access control
+
+Every tool supports fine-grained permission scoping via `config`:
+
+```json5
+tools: {
+  // Read-only GitHub — issues and PRs only
+  github: {
+    path: "~/.beige/toolkits/beige-toolkit/tools/github",
+    target: "gateway",
+    config: {
+      allowedCommands: ["issue", "pr"],
+    },
+  },
+
+  // Calendar — today's events only
+  "apple-calendar": {
+    path: "~/.beige/toolkits/beige-toolkit/tools/apple-calendar",
+    target: "gateway",
+    config: {
+      allowedCommands: ["events today", "calendars"],
+    },
+  },
+
+  // Slack — read-only, no sending
+  slack: {
+    path: "~/.beige/toolkits/beige-toolkit/tools/slack",
+    target: "gateway",
+    config: {
+      denyCommands: ["messages send", "messages draft"],
+    },
+  },
+},
+```
+
+See each tool's README for the full list of config options.
 
 ## Development
 
@@ -126,10 +181,16 @@ beige-toolkit/
 ├── tsconfig.json
 ├── vitest.config.ts
 ├── tools/
-│   └── github/
-│       ├── tool.json         # Tool manifest
-│       ├── index.ts          # Handler (runs on the gateway host)
-│       ├── README.md         # Docs mounted into the agent sandbox
+│   ├── github/               # GitHub CLI wrapper
+│   ├── slack/                 # Slack CLI wrapper
+│   ├── confluence/            # Confluence CLI wrapper
+│   ├── chrome/                # Chrome DevTools via MCP
+│   ├── apple-calendar/        # macOS Calendar via EventKit
+│   ├── sessions/              # Conversation history browser
+│   └── agent-to-agent/        # Cross-agent invocation
+│       ├── tool.json          # Tool manifest
+│       ├── index.ts           # Handler (runs on the gateway host)
+│       ├── README.md          # Docs mounted into the agent sandbox
 │       └── __tests__/
 │           ├── unit.test.ts
 │           └── integration.test.ts
