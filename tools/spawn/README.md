@@ -1,16 +1,16 @@
-# Agent-to-Agent Tool
+# Spawn Tool
 
-Invoke another Beige agent (or the same agent as a sub-agent) and hold a multi-turn conversation with it. Each call returns the target agent's full response plus a session key for follow-up turns.
+Spawn another Beige agent (or a sub-agent of yourself) and hold a multi-turn conversation with it. Each call returns the target agent's full response plus a session key for follow-up turns.
 
 ## Configuration
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `targets` | `undefined` (no calls permitted) | Map of callable agent names to their config. Each key is a target agent name; value is an object with optional `maxDepth`. The special key `"SELF"` resolves to the calling agent's own name at runtime. When absent or empty, all calls are rejected. |
-| `targets.<name>.maxDepth` | inherits top-level `maxDepth` | Maximum nesting depth for calls to this specific target. Overrides the top-level default when set. |
-| `maxDepth` | `1` | Default maximum nesting depth for targets that don't specify their own. `0` = all calls blocked. `1` = agents may call agents, but sub-agents may not call further. |
+| `targets` | `undefined` (no spawns permitted) | Map of spawnable agent names to their config. Each key is a target agent name; value is an object with optional `maxDepth`. The special key `"SELF"` resolves to the calling agent's own name at runtime. When absent or empty, all spawns are rejected. |
+| `targets.<name>.maxDepth` | inherits top-level `maxDepth` | Maximum nesting depth for spawns to this specific target. Overrides the top-level default when set. |
+| `maxDepth` | `1` | Default maximum nesting depth for targets that don't specify their own. `0` = all spawns blocked. `1` = agents may spawn agents, but sub-agents may not spawn further. |
 
-No calls are permitted until `targets` is explicitly configured — installing the tool changes nothing until you opt in. When any config is provided (even just `maxDepth`), the `targets` map must still be set to allow calls.
+No spawns are permitted until `targets` is explicitly configured — installing the tool changes nothing until you opt in. When any config is provided (even just `maxDepth`), the `targets` map must still be set to allow spawns.
 
 ## Prerequisites
 
@@ -23,25 +23,25 @@ The special target key `"SELF"` resolves to the calling agent's name at runtime,
 - When **coder** calls the tool, `"SELF"` → `"coder"`
 - When **reviewer** calls the tool, `"SELF"` → `"reviewer"`
 
-This is particularly useful in the top-level config — every agent with this tool gets the ability to create sub-agents of itself.
+This is particularly useful in the top-level config — every agent with this tool gets the ability to spawn sub-agents of itself.
 
 ## Depth Limiting
 
 | `maxDepth` | What is allowed |
 |---|---|
-| `0` | No agent-to-agent calls at all for this target |
-| `1` *(default)* | Agents may call agents; sub-agents may **not** call further agents |
-| `2` | Two levels of nesting; agents at depth 2 may not call further agents |
+| `0` | No spawns at all for this target |
+| `1` *(default)* | Agents may spawn agents; sub-agents may **not** spawn further agents |
+| `2` | Two levels of nesting; agents at depth 2 may not spawn further agents |
 
-Each target can override the default `maxDepth` independently. For example, you might allow deep nesting for sub-agents (`SELF: { maxDepth: 3 }`) while keeping cross-agent calls shallow.
+Each target can override the default `maxDepth` independently. For example, you might allow deep nesting for sub-agents (`SELF: { maxDepth: 3 }`) while keeping cross-agent spawns shallow.
 
 ## Config Examples
 
-**Basic setup** — coder and reviewer can call each other:
+**Basic setup** — coder and reviewer can spawn each other:
 ```json5
 tools: {
-  "agent-to-agent": {
-    path: "~/.beige/toolkits/beige-toolkit/tools/agent-to-agent",
+  spawn: {
+    path: "~/.beige/toolkits/beige-toolkit/tools/spawn",
     target: "gateway",
     config: {
       targets: {
@@ -54,12 +54,12 @@ tools: {
 },
 
 agents: {
-  coder:    { tools: ["agent-to-agent"] },
-  reviewer: { tools: ["agent-to-agent"] },
+  coder:    { tools: ["spawn"] },
+  reviewer: { tools: ["spawn"] },
 },
 ```
 
-**Sub-agent support** — every agent can call itself:
+**Sub-agent support** — every agent can spawn itself:
 ```json5
 config: {
   targets: {
@@ -75,11 +75,11 @@ Since beige supports per-agent `toolConfigs` overrides (deep-merged with the top
 
 ```json5
 tools: {
-  "agent-to-agent": {
-    path: "~/.beige/toolkits/beige-toolkit/tools/agent-to-agent",
+  spawn: {
+    path: "~/.beige/toolkits/beige-toolkit/tools/spawn",
     target: "gateway",
     config: {
-      // Baseline: every agent can call itself as a sub-agent
+      // Baseline: every agent can spawn itself as a sub-agent
       targets: {
         "SELF": {},
       },
@@ -89,11 +89,11 @@ tools: {
 },
 
 agents: {
-  // coder can additionally call reviewer
+  // coder can additionally spawn reviewer
   coder: {
-    tools: ["agent-to-agent"],
+    tools: ["spawn"],
     toolConfigs: {
-      "agent-to-agent": {
+      spawn: {
         targets: {
           reviewer: {},
         },
@@ -101,11 +101,11 @@ agents: {
     },
   },
 
-  // reviewer can additionally call coder, with deeper nesting
+  // reviewer can additionally spawn coder, with deeper nesting
   reviewer: {
-    tools: ["agent-to-agent"],
+    tools: ["spawn"],
     toolConfigs: {
-      "agent-to-agent": {
+      spawn: {
         targets: {
           coder: { maxDepth: 2 },
         },
@@ -115,7 +115,7 @@ agents: {
 
   // assistant gets only the baseline (SELF sub-agents)
   assistant: {
-    tools: ["agent-to-agent"],
+    tools: ["spawn"],
   },
 },
 ```
@@ -126,12 +126,12 @@ agents: {
 
 | Concern | How it is handled |
 |---|---|
-| **Default deny** | No calls permitted unless `targets` is configured. |
-| **Target-level control** | Only explicitly listed targets can be called. |
+| **Default deny** | No spawns permitted unless `targets` is configured. |
+| **Target-level control** | Only explicitly listed targets can be spawned. |
 | **Per-agent overrides** | Use `toolConfigs` to grant different agents different targets. |
 | **SELF keyword** | Enables sub-agent patterns; resolves to caller's own name at runtime. |
 | **Per-target depth cap** | Each target can have its own `maxDepth` to prevent runaway recursion. |
-| **Unknown targets** | Calls to non-existent agents are rejected immediately. |
+| **Unknown targets** | Spawns of non-existent agents are rejected immediately. |
 | **Session integrity** | Resuming a session with a mismatched `--target` is rejected. |
 
 ## Error Reference

@@ -1,5 +1,5 @@
 /**
- * Unit tests for the agent-to-agent tool handler.
+ * Unit tests for the spawn tool handler.
  *
  * All tests use injected stubs — no real AgentManager, SessionStore, or beige
  * config objects are needed.  Tests are deterministic and run in milliseconds.
@@ -296,7 +296,7 @@ describe("depth enforcement", () => {
   it("blocks call when caller is already at default maxDepth", async () => {
     const am = makeAgentManager();
     const ss = makeSessionStore({
-      "a2a:tui:human:default:coder:ts1": {
+      "spawn:tui:human:default:coder:ts1": {
         agentName: "coder",
         metadata: { depth: 1 },
       },
@@ -308,7 +308,7 @@ describe("depth enforcement", () => {
     const result = await handler(
       ["--target", "reviewer", "Hi"],
       undefined,
-      { sessionKey: "a2a:tui:human:default:coder:ts1" }
+      { sessionKey: "spawn:tui:human:default:coder:ts1" }
     );
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("depth limit reached");
@@ -331,7 +331,7 @@ describe("depth enforcement", () => {
   it("allows two levels when default maxDepth is 2", async () => {
     const am = makeAgentManager();
     const ss = makeSessionStore({
-      "a2a:tui:human:default:coder:ts1": {
+      "spawn:tui:human:default:coder:ts1": {
         agentName: "coder",
         metadata: { depth: 1 },
       },
@@ -343,7 +343,7 @@ describe("depth enforcement", () => {
     const result = await handler(
       ["--target", "reviewer", "Hi"],
       undefined,
-      { sessionKey: "a2a:tui:human:default:coder:ts1" }
+      { sessionKey: "spawn:tui:human:default:coder:ts1" }
     );
     expect(result.exitCode).toBe(0);
   });
@@ -351,7 +351,7 @@ describe("depth enforcement", () => {
   it("uses per-target maxDepth override", async () => {
     const am = makeAgentManager();
     const ss = makeSessionStore({
-      "a2a:tui:human:default:coder:ts1": {
+      "spawn:tui:human:default:coder:ts1": {
         agentName: "coder",
         metadata: { depth: 1 },
       },
@@ -364,7 +364,7 @@ describe("depth enforcement", () => {
     const result = await handler(
       ["--target", "reviewer", "Hi"],
       undefined,
-      { sessionKey: "a2a:tui:human:default:coder:ts1" }
+      { sessionKey: "spawn:tui:human:default:coder:ts1" }
     );
     expect(result.exitCode).toBe(0);
   });
@@ -415,7 +415,7 @@ describe("depth enforcement", () => {
   it("SELF respects per-target maxDepth", async () => {
     const am = makeAgentManager();
     const ss = makeSessionStore({
-      "a2a:tui:human:default:coder:ts1": {
+      "spawn:tui:human:default:coder:ts1": {
         agentName: "coder",
         metadata: { depth: 1 },
       },
@@ -428,7 +428,7 @@ describe("depth enforcement", () => {
     const result = await handler(
       ["--target", "coder", "Subtask"],
       undefined,
-      { sessionKey: "a2a:tui:human:default:coder:ts1" }
+      { sessionKey: "spawn:tui:human:default:coder:ts1" }
     );
     expect(result.exitCode).toBe(0);
   });
@@ -507,7 +507,7 @@ describe("session management", () => {
   });
 
   it("resumes existing session when --session is provided", async () => {
-    const existingKey = "a2a:tui:coder:default:reviewer:existing";
+    const existingKey = "spawn:tui:coder:default:reviewer:existing";
     const am = makeAgentManager();
     const ss = makeSessionStore({
       [TOP_LEVEL_SESSION]: TOP_LEVEL_ENTRY,
@@ -560,7 +560,7 @@ describe("session management", () => {
   });
 
   it("rejects --session key that belongs to a different agent", async () => {
-    const wrongKey = "a2a:tui:coder:default:coder:ts1";
+    const wrongKey = "spawn:tui:coder:default:coder:ts1";
     const am = makeAgentManager();
     const ss = makeSessionStore({
       [TOP_LEVEL_SESSION]: TOP_LEVEL_ENTRY,
@@ -787,14 +787,14 @@ describe("--info flag", () => {
   it("shows BLOCKED when caller is at max depth for all targets", async () => {
     const am = makeAgentManager();
     const ss = makeSessionStore({
-      "a2a:tui:human:default:coder:ts1": { agentName: "coder", metadata: { depth: 1 } },
+      "spawn:tui:human:default:coder:ts1": { agentName: "coder", metadata: { depth: 1 } },
     });
     const handler = createHandler(
       { targets: { reviewer: {} }, maxDepth: 1 },
       makeContext(am, ss, makeConfig())
     );
     const result = await handler(["--info"], undefined, {
-      sessionKey: "a2a:tui:human:default:coder:ts1",
+      sessionKey: "spawn:tui:human:default:coder:ts1",
       agentName: "coder",
     });
     expect(result.exitCode).toBe(0);
@@ -804,7 +804,7 @@ describe("--info flag", () => {
   it("shows ACTIVE when some targets are reachable", async () => {
     const am = makeAgentManager();
     const ss = makeSessionStore({
-      "a2a:tui:human:default:coder:ts1": { agentName: "coder", metadata: { depth: 1 } },
+      "spawn:tui:human:default:coder:ts1": { agentName: "coder", metadata: { depth: 1 } },
     });
     // reviewer blocked (maxDepth 1), but SELF (coder) has maxDepth 3
     const handler = createHandler(
@@ -812,7 +812,7 @@ describe("--info flag", () => {
       makeContext(am, ss, makeConfig())
     );
     const result = await handler(["--info"], undefined, {
-      sessionKey: "a2a:tui:human:default:coder:ts1",
+      sessionKey: "spawn:tui:human:default:coder:ts1",
       agentName: "coder",
     });
     expect(result.exitCode).toBe(0);

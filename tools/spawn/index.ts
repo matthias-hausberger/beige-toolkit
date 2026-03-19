@@ -1,7 +1,7 @@
 /**
- * agent-to-agent tool
+ * spawn tool
  *
- * Allows a beige agent to invoke another agent (or itself as a sub-agent) and
+ * Allows a beige agent to spawn another agent (or itself as a sub-agent) and
  * hold a multi-turn conversation with it.
  *
  * ── How it works ────────────────────────────────────────────────────────────
@@ -20,10 +20,10 @@
  *
  * ── Config model ────────────────────────────────────────────────────────────
  *
- * The `targets` object lists which agents can be called.  Each key is a target
- * agent name with an optional `maxDepth` override.  The special key `"SELF"`
- * resolves to the calling agent's own name at runtime, enabling sub-agent
- * patterns without naming a specific agent.
+ * The `targets` object lists which agents can be spawned.  Each key is a
+ * target agent name with an optional `maxDepth` override.  The special key
+ * `"SELF"` resolves to the calling agent's own name at runtime, enabling
+ * sub-agent patterns without naming a specific agent.
  *
  * Because beige supports per-agent `toolConfigs` overrides (deep-merged with
  * the top-level tool config), different agents can have different target lists.
@@ -57,17 +57,17 @@
  * Depth is tracked via session metadata (a field opaque to beige):
  *
  *   Top-level session (human → agent):  depth = 0  (no metadata, defaults to 0)
- *   First sub-agent call:               depth = 1
- *   Second sub-agent call:              depth = 2  …and so on
+ *   First sub-agent spawn:              depth = 1
+ *   Second sub-agent spawn:             depth = 2  …and so on
  *
  * Each target in the `targets` config can have its own `maxDepth`.  When not
  * set, the top-level `maxDepth` default (1) applies.
  *
  * When the effective maxDepth for a target is 1, depth-1 sessions are blocked
- * from making further agent-to-agent calls to that target.  The check reads
- * the caller's session entry from the session store; if no entry exists (i.e.
- * the key is not in the session map — possible in tests or unusual scenarios)
- * depth defaults to 0.
+ * from spawning further agents to that target.  The check reads the caller's
+ * session entry from the session store; if no entry exists (i.e. the key is
+ * not in the session map — possible in tests or unusual scenarios) depth
+ * defaults to 0.
  *
  * ── Security model ──────────────────────────────────────────────────────────
  *
@@ -140,21 +140,21 @@ export interface TargetConfig {
  * Per-agent restrictions are handled via beige's `toolConfigs` override
  * mechanism — no per-caller mapping is needed in this config.
  */
-export interface AgentToAgentConfig {
+export interface SpawnConfig {
   /**
    * Map of target agent names to their config.
    * Key: agent name (or the special keyword "SELF" for self-invocation).
    * Value: optional per-target config (e.g. maxDepth override).
    *
-   * Absent = no agent is permitted to be called.
+   * Absent = no agent is permitted to be spawned.
    */
   targets?: Record<string, TargetConfig>;
 
   /**
    * Default maximum nesting depth for targets that don't specify their own.
    * Default: 1.
-   * 0 = all calls blocked regardless of targets.
-   * 1 = agents may call agents; those sub-agents may not call further agents.
+   * 0 = all spawns blocked regardless of targets.
+   * 1 = agents may spawn agents; those sub-agents may not spawn further agents.
    */
   maxDepth?: number;
 }
@@ -162,7 +162,7 @@ export interface AgentToAgentConfig {
 /**
  * Context injected by the gateway (or by tests).
  */
-export interface AgentToAgentContext {
+export interface SpawnContext {
   /** Mutable ref — beige populates .current after AgentManager is created. */
   agentManagerRef?: { current: AgentManagerLike | null };
   sessionStore?: SessionStoreLike;
@@ -198,7 +198,7 @@ function generateChildSessionKey(
     now.toISOString().slice(11, 19).replace(/:/g, "") +
     "-" +
     Math.random().toString(36).slice(2, 8);
-  return `a2a:${callerSessionKey}:${targetAgent}:${ts}`;
+  return `spawn:${callerSessionKey}:${targetAgent}:${ts}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -281,18 +281,18 @@ function usageText(resolvedTargets: Map<string, TargetConfig>): string {
     ? [...resolvedTargets.keys()].join(", ")
     : "(none configured)";
   return [
-    "Usage: agent-to-agent --target <agent> [--session <key>] <message...>",
-    "       agent-to-agent --target <agent> [--session <key>] --message-file <path>",
-    "       agent-to-agent --info",
+    "Usage: spawn --target <agent> [--session <key>] <message...>",
+    "       spawn --target <agent> [--session <key>] --message-file <path>",
+    "       spawn --info",
     "",
     "Start a new conversation:",
-    "  agent-to-agent --target reviewer Please review the code in /workspace/src",
+    "  spawn --target reviewer Please review the code in /workspace/src",
     "",
     "Continue an existing conversation:",
-    "  agent-to-agent --target reviewer --session <key> Thanks, can you also check the tests?",
+    "  spawn --target reviewer --session <key> Thanks, can you also check the tests?",
     "",
-    "Show your agent-to-agent permissions:",
-    "  agent-to-agent --info",
+    "Show your spawn permissions:",
+    "  spawn --info",
     "",
     `Targets you may call: ${permitted}`,
   ].join("\n");
@@ -307,8 +307,8 @@ function buildInfoResponse(
   beigeConfig: BeigeConfigLike | undefined
 ): { output: string; exitCode: number } {
   const lines: string[] = [
-    "agent-to-agent — permissions for this session",
-    "═══════════════════════════════════════════════",
+    "spawn — permissions for this session",
+    "═══════════════════════════════════════",
     "",
     `Current agent:      ${callerAgent}`,
     `Current depth:      ${callerDepth}`,
@@ -318,7 +318,7 @@ function buildInfoResponse(
 
   if (!rawTargets || Object.keys(rawTargets).length === 0) {
     lines.push("Status: DISABLED — no targets configured.");
-    lines.push("No agent-to-agent calls can be made until targets is set in config.json5.");
+    lines.push("No spawns can be made until targets is set in config.json5.");
   } else {
     if (resolvedTargets.size === 0) {
       lines.push("Status: DISABLED — no targets resolved for this agent.");
@@ -374,8 +374,8 @@ function buildInfoResponse(
 // ---------------------------------------------------------------------------
 
 export function createHandler(
-  config: AgentToAgentConfig,
-  context: AgentToAgentContext = {}
+  config: SpawnConfig,
+  context: SpawnContext = {}
 ): ToolHandler {
   const { agentManagerRef, sessionStore, beigeConfig } = context;
   const defaultMaxDepth = config.maxDepth ?? 1;
@@ -390,7 +390,7 @@ export function createHandler(
     const agentManager = agentManagerRef?.current ?? null;
     if (!agentManager) {
       return {
-        output: "agent-to-agent: gateway not ready (AgentManager unavailable). Try again in a moment.",
+        output: "spawn: gateway not ready (AgentManager unavailable). Try again in a moment.",
         exitCode: 1,
       };
     }
@@ -439,8 +439,8 @@ export function createHandler(
     if (!rawTargets || Object.keys(rawTargets).length === 0) {
       return {
         output: [
-          "Error: No targets configured for the agent-to-agent tool.",
-          "Agent-to-agent calls are disabled until targets is set in config.json5.",
+          "Error: No targets configured for the spawn tool.",
+          "Spawning is disabled until targets is set in config.json5.",
           "",
           "Example config:",
           "  config: {",
@@ -458,8 +458,8 @@ export function createHandler(
           `Error: Target agent '${target}' is not in the configured targets.`,
           `Configured targets: ${permitted}`,
           "",
-          "Update the targets config in the agent-to-agent tool to grant access.",
-          "Run 'agent-to-agent --info' to see your current permissions.",
+          "Update the targets config in the spawn tool to grant access.",
+          "Run 'spawn --info' to see your current permissions.",
         ].join("\n"),
         exitCode: 1,
       };
@@ -474,9 +474,9 @@ export function createHandler(
         output: [
           `Error: Agent call depth limit reached (current depth: ${callerDepth}, max for '${target}': ${effectiveMaxDepth}).`,
           "This session was itself created by another agent and is not permitted to make",
-          "further agent-to-agent calls to this target.",
+          "further spawns to this target.",
           "",
-          "To allow deeper nesting, increase maxDepth in the agent-to-agent tool config.",
+          "To allow deeper nesting, increase maxDepth in the spawn tool config.",
         ].join("\n"),
         exitCode: 1,
       };
@@ -525,7 +525,7 @@ export function createHandler(
       // Validate that the session exists and belongs to the requested target.
       if (!sessionStore) {
         return {
-          output: "agent-to-agent: session store unavailable — cannot validate --session key.",
+          output: "spawn: session store unavailable — cannot validate --session key.",
           exitCode: 1,
         };
       }

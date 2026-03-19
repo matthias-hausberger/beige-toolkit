@@ -1,13 +1,13 @@
-# Agent-to-Agent Tool — Usage Guide
+# Spawn Tool — Usage Guide
 
-Invoke another beige agent and hold a multi-turn conversation with it. Each call returns the target agent's full response plus a **session key** you can pass back to continue the same conversation.
+Spawn another beige agent (or a sub-agent of yourself) and hold a multi-turn conversation with it. Each call returns the target agent's full response plus a **session key** you can pass back to continue the same conversation.
 
 ## Calling Convention
 
 ```sh
-/tools/bin/agent-to-agent --target <agent> <message...>
-/tools/bin/agent-to-agent --target <agent> --session <key> <message...>
-/tools/bin/agent-to-agent --info
+/tools/bin/spawn --target <agent> <message...>
+/tools/bin/spawn --target <agent> --session <key> <message...>
+/tools/bin/spawn --info
 ```
 
 ## Check Your Permissions First
@@ -15,22 +15,22 @@ Invoke another beige agent and hold a multi-turn conversation with it. Each call
 Always start by checking what you're allowed to do:
 
 ```sh
-/tools/bin/agent-to-agent --info
+/tools/bin/spawn --info
 ```
 
-This shows your current agent name, depth, allowed targets, and whether you can make calls. It never invokes any agent.
+This shows your current agent name, depth, allowed targets, and whether you can spawn agents. It never invokes any agent.
 
 ## Examples
 
 ### Start a New Conversation
 
 ```sh
-/tools/bin/agent-to-agent --target reviewer Please review the code in /workspace/src/main.ts
+/tools/bin/spawn --target reviewer Please review the code in /workspace/src/main.ts
 ```
 
 Response format:
 ```
-SESSION: a2a:tui:coder:default:reviewer:20260317-213000-abc123
+SESSION: spawn:tui:coder:default:reviewer:20260317-213000-abc123
 ---
 <reviewer's response>
 ```
@@ -40,16 +40,16 @@ SESSION: a2a:tui:coder:default:reviewer:20260317-213000-abc123
 ### Continue a Conversation
 
 ```sh
-/tools/bin/agent-to-agent --target reviewer \
-  --session a2a:tui:coder:default:reviewer:20260317-213000-abc123 \
+/tools/bin/spawn --target reviewer \
+  --session spawn:tui:coder:default:reviewer:20260317-213000-abc123 \
   Thanks — can you also check the test coverage?
 ```
 
 ### Send a Long Message from a File
 
 ```sh
-/tools/bin/agent-to-agent --target reviewer \
-  --session a2a:tui:coder:default:reviewer:20260317-213000-abc123 \
+/tools/bin/spawn --target reviewer \
+  --session spawn:tui:coder:default:reviewer:20260317-213000-abc123 \
   --message-file /workspace/review-request.txt
 ```
 
@@ -57,7 +57,7 @@ SESSION: a2a:tui:coder:default:reviewer:20260317-213000-abc123
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--target <agent>` | `-t` | Agent to invoke. Required unless `--info`. |
+| `--target <agent>` | `-t` | Agent to spawn. Required unless `--info`. |
 | `--session <key>` | `-s` | Resume an existing conversation. Omit to start new. |
 | `--message-file <path>` | | Read message from a file instead of inline args. |
 | `--info` | `-i` | Print permission summary and exit. |
@@ -76,8 +76,8 @@ Nesting is capped by `maxDepth` (default: `1`). Each target can have its own dep
 
 | `maxDepth` | What is allowed |
 |---|---|
-| `0` | No agent-to-agent calls at all to this target |
-| `1` *(default)* | Agents may call agents; those sub-agents may **not** call further agents |
+| `0` | No spawns at all to this target |
+| `1` *(default)* | Agents may spawn agents; those sub-agents may **not** spawn further agents |
 | `2` | Two levels of nesting |
 
 If you hit the depth limit:
@@ -87,7 +87,7 @@ Error: Agent call depth limit reached (current depth: 1, max for 'reviewer': 1).
 
 ## Tips
 
-- Run `--info` first to understand your permissions before making calls.
+- Run `--info` first to understand your permissions before spawning agents.
 - Omitting `--session` starts a fresh conversation every time.
 - Use `--message-file` for long or complex prompts that would be awkward inline.
-- Sub-agent calls (calling yourself) work the same way — if `SELF` or your own agent name is in the `targets` config.
+- Sub-agent spawns (spawning yourself) work the same way — if `SELF` or your own agent name is in the `targets` config.

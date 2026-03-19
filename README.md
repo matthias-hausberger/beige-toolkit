@@ -16,7 +16,7 @@ All tools run on the **gateway** (host machine), not inside agent sandboxes. Eac
 | [chrome](./tools/chrome/) | Control a Chrome browser — navigation, screenshots, DOM inspection, JS evaluation, network monitoring, performance analysis. Each agent gets its own persistent browser profile. | Google Chrome installed |
 | [apple-calendar](./tools/apple-calendar/) | Read events from macOS Calendar — supports iCloud, Google, Exchange, and subscribed calendars. List calendars, view events by date/range, and search by title, notes, or location. Read-only. | macOS, Xcode Command Line Tools |
 | [sessions](./tools/sessions/) | Browse and search conversation history. Agents can only access their own sessions — listing, full message retrieval, and pattern-based search. | — |
-| [agent-to-agent](./tools/agent-to-agent/) | Invoke other Beige agents as sub-agents with multi-turn conversations. Depth-limited and opt-in — no targets allowed until explicitly configured. | — |
+| [spawn](./tools/spawn/) | Spawn other Beige agents (or sub-agents of yourself) with multi-turn conversations. Depth-limited and opt-in — no targets allowed until explicitly configured. | — |
 
 ## Installation
 
@@ -260,7 +260,7 @@ beige-toolkit/
 │   │   └── __tests__/
 │   ├── apple-calendar/       # macOS Calendar via EventKit
 │   ├── sessions/             # Conversation history browser
-│   └── agent-to-agent/       # Cross-agent invocation
+│   └── spawn/                # Agent spawning (cross-agent + sub-agent)
 ├── test-utils/               # Shared test helpers
 ├── tests/                    # Toolkit-level smoke tests
 └── scripts/

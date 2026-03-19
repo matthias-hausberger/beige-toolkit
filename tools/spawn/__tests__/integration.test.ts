@@ -1,5 +1,5 @@
 /**
- * Integration tests for the agent-to-agent tool.
+ * Integration tests for the spawn tool.
  *
  * Covers manifest validity and end-to-end handler flows that exercise multiple
  * components together — e.g. session metadata being written then read back on
@@ -22,14 +22,14 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("tool manifest", () => {
-  const manifest = loadToolManifest("tools/agent-to-agent");
+  const manifest = loadToolManifest("tools/spawn");
 
   it("is valid", () => {
     assertValidToolManifest(manifest);
   });
 
-  it("has name agent-to-agent", () => {
-    expect(manifest.name).toBe("agent-to-agent");
+  it("has name spawn", () => {
+    expect(manifest.name).toBe("spawn");
   });
 
   it("target is gateway", () => {
@@ -175,7 +175,7 @@ describe("depth metadata", () => {
     const ss = makeRealishSessionStore();
 
     // Seed a depth-1 session (was itself created by another agent)
-    const depth1Key = "a2a:tui:human:default:coder:abc";
+    const depth1Key = "spawn:tui:human:default:coder:abc";
     ss.createSession(depth1Key, "coder", { depth: 1, parentSessionKey: "tui:human:default", invokedBy: "human" });
 
     const handler = createHandler(
@@ -198,7 +198,7 @@ describe("depth metadata", () => {
     const am = makeAgentManager();
     const ss = makeRealishSessionStore();
 
-    const depth1Key = "a2a:tui:human:default:coder:abc";
+    const depth1Key = "spawn:tui:human:default:coder:abc";
     ss.createSession(depth1Key, "coder", { depth: 1, parentSessionKey: "tui:human:default", invokedBy: "human" });
 
     const handler = createHandler(

@@ -7,7 +7,7 @@
   "repository": "github:matthias-hausberger/beige-toolkit",
   "tools": [
     "./tools/github",
-    "./tools/agent-to-agent",
+    "./tools/spawn",
     "./tools/sessions",
     "./tools/slack",
     "./tools/confluence",
