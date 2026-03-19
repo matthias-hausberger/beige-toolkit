@@ -10,7 +10,8 @@
     "toolkit.json",
     "tools/*/tool.json",
     "tools/*/index.ts",
-    "tools/*/README.md"
+    "tools/*/README.md",
+    "tools/apple-calendar/calendar-cli.swift"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
