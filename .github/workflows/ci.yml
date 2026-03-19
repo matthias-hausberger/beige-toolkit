@@ -63,3 +63,17 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+  sync-docs:
+    # Only sync docs on push to main (not PRs or dev)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [check-versions, typecheck, test]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger beige docs sync
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.BEIGE_DOCS_SYNC_PAT }}
+          repository: matthias-hausberger/beige
+          event-type: toolkit-docs-updated
