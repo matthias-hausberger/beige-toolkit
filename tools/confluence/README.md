@@ -1,118 +1,19 @@
-# confluence
+# Confluence Tool
 
 Interact with Atlassian Confluence via the [`confluence-cli`](https://github.com/pchuri/confluence-cli) binary installed on the gateway host. Agents pass `confluence` arguments directly; the tool enforces two independent, optional permission layers before executing anything.
 
-**Requires:** `confluence-cli` installed and authenticated on the gateway host.
+## Prerequisites
 
-**Authentication:** The tool assumes the host is already logged in. Run `confluence init` on the gateway once to set up credentials. See [confluence-cli setup](https://github.com/pchuri/confluence-cli#configuration) for details.
+| Requirement | Details |
+|---|---|
+| `confluence-cli` | Must be installed on the gateway host ([install guide](https://github.com/pchuri/confluence-cli)) |
+| Authentication | Run `confluence init` on the gateway host to set up credentials |
 
----
+## Default Configuration
 
-## Quick start
+By default, **all commands are permitted** and **all spaces are accessible** — no denylist and no space restrictions are applied. Both permission layers are fully open until explicitly configured.
 
-```sh
-# Read a page by ID
-/tools/bin/confluence read 123456789
-
-# Read a page in markdown format
-/tools/bin/confluence read 123456789 --format markdown
-
-# Search for pages (scoped to a space)
-/tools/bin/confluence search "API documentation" --space DOCS --limit 5
-
-# List all spaces
-/tools/bin/confluence spaces
-
-# List child pages
-/tools/bin/confluence children 123456789 --recursive --format tree
-
-# Create a page
-/tools/bin/confluence create "My New Page" SPACEKEY --content "**Hello** World!" --format markdown
-
-# Update a page
-/tools/bin/confluence update 123456789 --content "Updated content"
-
-# Delete a page
-/tools/bin/confluence delete 123456789 --yes
-```
-
----
-
-## Available commands
-
-All `confluence` subcommands are available subject to configured restrictions. By default, **all commands are permitted** — no denylist and no space restrictions are applied.
-
-### Read / search
-
-```sh
-confluence read <pageId|url> [--format text|html|markdown]
-confluence info <pageId|url>
-confluence search <query> [--space <key>] [--limit <n>]
-confluence spaces
-confluence find <title> [--space <key>]
-confluence children <pageId> [--recursive] [--max-depth <n>] [--format list|tree|json] [--show-id] [--show-url]
-```
-
-### Create / update / delete
-
-```sh
-confluence create <title> <spaceKey> [--content <text>] [--file <path>] [--format markdown|html|storage]
-confluence create-child <title> <parentId> [--content <text>] [--file <path>] [--format markdown|html|storage]
-confluence copy-tree <sourceId> <targetParentId> [newTitle] [--max-depth <n>] [--exclude <patterns>] [--dry-run] [--copy-suffix <text>]
-confluence update <pageId> [--title <t>] [--content <text>] [--file <path>] [--format markdown|html|storage]
-confluence move <pageId|url> <newParentId|url> [--title <t>]
-confluence delete <pageId|url> [--yes]
-confluence edit <pageId> [--output <file>]
-```
-
-### Attachments
-
-```sh
-confluence attachments <pageId|url> [--limit <n>] [--pattern <glob>] [--download] [--dest <dir>]
-confluence attachment-upload <pageId|url> --file <path> [--comment <text>] [--replace] [--minor-edit]
-confluence attachment-delete <pageId|url> <attachmentId> [--yes]
-```
-
-### Comments
-
-```sh
-confluence comments <pageId|url> [--format text|markdown|json] [--limit <n>] [--location inline|footer|resolved]
-confluence comment <pageId|url> --content <text> [--parent <commentId>] [--location inline|footer]
-confluence comment-delete <commentId> [--yes]
-```
-
-### Content properties
-
-```sh
-confluence property-list <pageId|url> [--format text|json]
-confluence property-get <pageId|url> <key> [--format text|json]
-confluence property-set <pageId|url> <key> --value <json>
-confluence property-delete <pageId|url> <key> [--yes]
-```
-
-### Export / edit workflow
-
-```sh
-confluence export <pageId|url> [--format markdown|html|text] [--dest <dir>] [--file <filename>] [--skip-attachments]
-confluence edit <pageId> [--output <file>]
-```
-
-### Profiles
-
-```sh
-confluence profile list
-confluence profile use <name>
-confluence profile add <name> [--domain <d>] [--api-path <p>] [--auth-type basic|bearer] [--email <e>] [--token <t>] [--read-only]
-confluence profile remove <name>
-
-confluence stats
-```
-
-Run `confluence <subcommand> --help` for full flag reference.
-
----
-
-## Permission model
+## Permission Model
 
 There are two independent, optional permission layers. Either, both, or neither can be configured. They compose: a call must pass **both** layers to proceed.
 
@@ -135,36 +36,17 @@ Agent call
          Execute
 ```
 
----
+### Layer 1 — Command-Level
 
-### Layer 1 — command-level
+Controls which subcommands the agent may run. Command paths use the leading subcommand tokens (e.g. `read`, `search`, `create`, `profile list`).
 
-Controls which subcommands the agent may run at all, without any awareness of which page or space is targeted.
+**Prefix matching:** `"create"` blocks both `create` and `create-child`. `"profile"` blocks all profile subcommands.
 
-| Args | Command path |
-|---|---|
-| `read 123456789 --format markdown` | `read` |
-| `search "term" --limit 5` | `search` |
-| `create "Title" SPACE` | `create` |
-| `create-child "Title" 123` | `create-child` |
-| `profile list` | `profile list` |
-| `profile use staging` | `profile use` |
-| `--profile prod read 123` | `read` (global `--profile` flag is skipped) |
+**Precedence:** deny beats allow.
 
-**Prefix matching:** `"create"` in a deny list blocks both `create` and `create-child`. `"profile"` blocks all profile subcommands.
+### Layer 2 — Space-Level
 
-**Precedence:** deny beats allow:
-1. `denyCommands` — if any entry matches → rejected immediately
-2. `allowCommands` — if set and no entry matches → rejected
-3. Otherwise → permitted
-
----
-
-### Layer 2 — space-level
-
-Controls which Confluence **spaces** the agent may read from and write to. This layer is **completely skipped** when neither `allowReadSpaces` nor `allowWriteSpaces` is configured.
-
-#### Command classification
+Controls which Confluence **spaces** the agent may read from and write to. Completely skipped when neither `allowReadSpaces` nor `allowWriteSpaces` is configured.
 
 | Kind | Commands |
 |---|---|
@@ -172,45 +54,18 @@ Controls which Confluence **spaces** the agent may read from and write to. This 
 | **WRITE** | `create`, `create-child`, `update`, `delete`, `move`, `copy-tree`, `attachment-upload`, `attachment-delete`, `comment`, `property-set`, `property-delete` |
 | **AGNOSTIC** (always pass) | `spaces`, `stats`, `profile`, `init`, `comment-delete` |
 
-READ commands are checked against `allowReadSpaces`; WRITE commands against `allowWriteSpaces`. The two lists are fully independent — configuring one does not restrict the other.
+#### Space Resolution
 
-#### Space resolution
+- **Static (free):** `create` parses the space key from args, `search --space` uses the flag, URLs have the space key in the path
+- **Dynamic (one API call):** Commands with numeric page IDs trigger a `confluence info` lookup (results are cached)
 
-The tool needs to know the target space before it can enforce the policy. Two strategies are used:
+#### ⚠️ CQL Disclaimer
 
-**Tier 1 — static (free, no API call):**
-- `create` — the space key is the second positional argument (`confluence create "Title" SPACEKEY`)
-- `find --space` and `search --space` — the `--space` flag value is used directly
-- URL arguments — the space key is parsed from the URL path (`/wiki/spaces/SPACEKEY/`)
+The `search` command accepts free-text queries that may contain CQL expressions. **This tool only inspects the `--space` flag.** CQL in the query string is NOT parsed or enforced. Use `requireSpaceOnSearch: true` to force explicit `--space` usage.
 
-**Tier 2 — dynamic (one `confluence info` lookup):**
-- Any command whose target is a numeric page ID (e.g. `read 123456789`, `update 123456789`)
-- The tool calls `confluence info <pageId>` internally, parses the `Space:` line from the output, and caches the result in-process for the lifetime of the gateway session
-- The same `--profile` configured for the tool is forwarded to these lookups
+#### ⚠️ comment-delete Disclaimer
 
-For `copy-tree` and `move`, which take two page IDs (source and target parent), **both** are resolved and checked independently.
-
-**Fail-open:** if a space key cannot be determined (e.g. the `info` call returns no `Space:` line, or the command has no extractable target), the call is **allowed through**. This avoids false blocks on edge cases. Combine with `denyCommands` if you need hard guarantees on specific commands.
-
-#### ⚠️ CQL disclaimer
-
-The `search` command accepts a free-text query that may contain **CQL expressions**, for example:
-
-```sh
-confluence search "space IN (TEAM, SECRET) AND label = docs"
-```
-
-**This tool only inspects the `--space` flag.** CQL embedded in the query string is NOT parsed or enforced. If strict space isolation for search is required:
-
-1. Set `requireSpaceOnSearch: true` — rejects any search call that does not include `--space`
-2. Agents must then pass `--space TEAM` explicitly
-3. Understand that a determined agent could still embed CQL in the query string — if you cannot trust the agent at that level, combine with network-level controls or use the Confluence API's built-in read-only mode (`confluence init --read-only`)
-
-#### ⚠️ comment-delete disclaimer
-
-`comment-delete <commentId>` takes a comment ID, not a page ID or URL. There is no way to look up a comment's parent page or space from a comment ID using confluence-cli alone, so **space enforcement is not applied to `comment-delete`**. It is classified as agnostic and always passes the space layer. Use `denyCommands: ["comment-delete"]` to block it entirely if needed.
-
----
+`comment-delete <commentId>` takes a comment ID, not a page ID. Space enforcement cannot be applied. Use `denyCommands: ["comment-delete"]` to block it entirely if needed.
 
 ## Configuration
 
@@ -228,7 +83,7 @@ tools: {
       allowReadSpaces: ["DOCS", "TEAM"],
       allowWriteSpaces: ["DRAFTS"],
 
-      // Reject search without --space (note: CQL in query string is not enforced)
+      // Reject search without --space (default: false)
       requireSpaceOnSearch: true,
 
       // Timeout per confluence call in seconds (default: 30)
@@ -241,9 +96,7 @@ tools: {
 },
 ```
 
----
-
-## Config examples
+### Config Examples
 
 **Read-only agent, all spaces:**
 ```json5
@@ -272,15 +125,6 @@ config: {
 }
 ```
 
-**Strictly scoped documentation bot (reads from DOCS/TEAM, writes to DRAFTS only):**
-```json5
-config: {
-  allowReadSpaces: ["DOCS", "TEAM"],
-  allowWriteSpaces: ["DRAFTS"],
-  requireSpaceOnSearch: true,
-}
-```
-
 **Write-safe agent (all reads allowed; only non-destructive writes):**
 ```json5
 config: {
@@ -295,22 +139,27 @@ config: {
 }
 ```
 
----
+## Available Commands
 
-## Profile injection
+### Read / Search
+`read`, `info`, `search`, `spaces`, `find`, `children`
 
-If `config.profile` is set, the tool prepends `--profile <value>` to every call when `--profile` is not already in the agent's args. The agent-provided value takes precedence.
+### Create / Update / Delete
+`create`, `create-child`, `copy-tree`, `update`, `move`, `delete`, `edit`
 
-This also applies to the internal `confluence info` lookups used for Tier 2 space resolution, so they always use the correct authentication context.
+### Attachments
+`attachments`, `attachment-upload`, `attachment-delete`
 
-```
-confluence --profile production read 123456789
-confluence --profile production info 123456789   ← internal lookup, same profile
-```
+### Comments
+`comments`, `comment`, `comment-delete`
 
----
+### Content Properties
+`property-list`, `property-get`, `property-set`, `property-delete`
 
-## Error reference
+### Export / Profiles
+`export`, `edit`, `profile list`, `profile use`, `profile add`, `profile remove`, `stats`
+
+## Error Reference
 
 | Error | Cause |
 |---|---|
@@ -319,6 +168,10 @@ confluence --profile production info 123456789   ← internal lookup, same profi
 | `Permission denied: command 'X' is not in allowCommands` | allowCommands is set and command not listed |
 | `Permission denied: space 'X' is not in allowReadSpaces` | Page/space not in the read allowlist |
 | `Permission denied: space 'X' is not in allowWriteSpaces` | Page/space not in the write allowlist |
-| `Permission denied: search without --space is not permitted` | requireSpaceOnSearch is enabled and --space flag is missing |
-| *(non-zero exit, error message in output)* | confluence-cli itself returned an error |
-| `(no output)` | confluence-cli ran successfully but produced no output |
+| `Permission denied: search without --space is not permitted` | requireSpaceOnSearch enabled and --space missing |
+
+## Implementation Details
+
+- **Target**: Gateway (runs on the host, not in the sandbox)
+- **Dependency**: `confluence-cli` binary
+- **Stateless**: Each invocation spawns a fresh process (except cached space lookups)

@@ -11,6 +11,8 @@
     "tools/*/tool.json",
     "tools/*/index.ts",
     "tools/*/README.md",
+    "tools/*/SKILL.md",
+    "tools/*/skills/",
     "tools/apple-calendar/calendar-cli.swift"
   ],
   "scripts": {

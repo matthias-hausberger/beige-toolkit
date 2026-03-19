@@ -1,82 +1,14 @@
-# slack
+# Slack Tool
 
-Interact with Slack workspaces via the [`slackcli`](https://github.com/username/slackcli) binary installed on the gateway host. Agents pass `slackcli` arguments directly; the tool enforces a permission layer before executing anything.
+Interact with Slack workspaces via the [`slackcli`](https://github.com/shaharia-lab/slackcli) binary installed on the gateway host. Agents pass `slackcli` arguments directly; the tool enforces a permission layer before executing anything.
 
-**Requires:** `slackcli` installed and authenticated on the gateway host.
+## Prerequisites
 
----
-
-## Quick start
-
-```sh
-# List your channels and DMs
-/tools/bin/slack conversations list
-
-# Read recent messages from a channel
-/tools/bin/slack conversations read C1234567890 --limit 20
-
-# Send a message (if permitted)
-/tools/bin/slack messages send --recipient-id C1234567890 --message "Deploy complete ✓"
-
-# Add a reaction
-/tools/bin/slack messages react --channel-id C1234567890 --timestamp 1234567890.123 --emoji thumbsup
-
-# List authenticated workspaces
-/tools/bin/slack auth list
-```
-
----
-
-## Available commands
-
-All `slackcli` subcommands are available subject to the configured allow/deny lists.
-
-### `conversations`
-
-```sh
-slack conversations list [--types <types>] [--limit <n>] [--exclude-archived] [--workspace <id>]
-slack conversations read <channel-id> [--limit <n>] [--thread-ts <ts>] [--oldest <ts>] [--latest <ts>] [--json] [--workspace <id>]
-```
-
-### `messages`
-
-```sh
-slack messages send --recipient-id <id> --message <text> [--thread-ts <ts>] [--workspace <id>]
-slack messages react --channel-id <id> --timestamp <ts> --emoji <name> [--workspace <id>]
-slack messages draft --recipient-id <id> --message <text> [--thread-ts <ts>] [--workspace <id>]
-```
-
-### `auth`
-
-```sh
-slack auth list
-slack auth set-default <workspace-id>
-# auth login, auth logout, auth remove — blocked by default denylist
-```
-
-Run `slack <subcommand> --help` for full flag reference.
-
----
-
-## Permission model
-
-Access is controlled at the **command path** level. A command path is the leading 1–2 subcommand tokens before any flags:
-
-| Args | Command path |
+| Requirement | Details |
 |---|---|
-| `conversations list --limit 50` | `conversations list` |
-| `messages send --recipient-id C1` | `messages send` |
-| `messages react ...` | `messages react` |
-| `auth login` | `auth login` |
+| `slackcli` | Must be installed and authenticated on the gateway host |
 
-**Matching is by prefix:** `"messages"` in a deny list blocks `messages send`, `messages react`, and `messages draft`. `"messages send"` blocks only send.
-
-**Precedence:** deny beats allow. Checked in order:
-1. `denyCommands` — if any entry matches → rejected immediately
-2. `allowCommands` — if set and no entry matches → rejected
-3. Otherwise → permitted
-
-### Default denylist
+## Default Configuration
 
 When **no config is provided**, a built-in denylist is applied:
 
@@ -89,7 +21,16 @@ These are auth-mutating and update operations that agents should not run autonom
 
 When **any config is provided** (even just `timeout`), the default denylist is replaced entirely by whatever you configure.
 
----
+## Permission Model
+
+Access is controlled at the **command path** level. A command path is the leading 1–2 subcommand tokens before any flags.
+
+**Matching is by prefix:** `"messages"` in a deny list blocks `messages send`, `messages react`, and `messages draft`. `"messages send"` blocks only send.
+
+**Precedence:** deny beats allow. Checked in order:
+1. `denyCommands` — if any entry matches → rejected immediately
+2. `allowCommands` — if set and no entry matches → rejected
+3. Otherwise → permitted
 
 ## Configuration
 
@@ -115,7 +56,7 @@ tools: {
 },
 ```
 
-### Config examples
+### Config Examples
 
 **Read-only agent** (can read everything, cannot send or mutate auth):
 ```json5
@@ -152,21 +93,32 @@ config: {
 }
 ```
 
----
+## Available Commands
 
-## Workspace injection
+### `conversations`
 
-If `config.workspace` is set, the tool automatically appends `--workspace <value>` to every call when `--workspace` is not already in the agent's args. The agent-provided value takes precedence.
-
-```json5
-config: {
-  workspace: "acme-corp",
-}
+```sh
+conversations list [--types <types>] [--limit <n>] [--exclude-archived] [--workspace <id>]
+conversations read <channel-id> [--limit <n>] [--thread-ts <ts>] [--oldest <ts>] [--latest <ts>] [--json] [--workspace <id>]
 ```
 
----
+### `messages`
 
-## Error reference
+```sh
+messages send --recipient-id <id> --message <text> [--thread-ts <ts>] [--workspace <id>]
+messages react --channel-id <id> --timestamp <ts> --emoji <name> [--workspace <id>]
+messages draft --recipient-id <id> --message <text> [--thread-ts <ts>] [--workspace <id>]
+```
+
+### `auth`
+
+```sh
+auth list
+auth set-default <workspace-id>
+# auth login, auth logout, auth remove — blocked by default denylist
+```
+
+## Error Reference
 
 | Error | Cause |
 |---|---|
@@ -174,4 +126,9 @@ config: {
 | `Permission denied: command 'X' is blocked by denyCommands` | Command matched a deny entry |
 | `Permission denied: command 'X' is not in allowCommands` | allowCommands is set and command not listed |
 | *(empty output, exit 1)* | slackcli itself returned an error — check stderr in output |
-| `(no output)` | slackcli ran successfully but produced no output |
+
+## Implementation Details
+
+- **Target**: Gateway (runs on the host, not in the sandbox)
+- **Dependency**: `slackcli` binary
+- **Stateless**: Each invocation spawns a fresh `slackcli` process

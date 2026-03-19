@@ -10,13 +10,13 @@ All tools run on the **gateway** (host machine), not inside agent sandboxes. Eac
 
 | Tool | Description | Requires |
 |------|-------------|----------|
-| [github](./tools/github/README.md) | Interact with GitHub via the `gh` CLI — repos, issues, PRs, releases, workflow runs, and more. Repository deletion is permanently blocked. Raw API access is off by default. | [`gh`](https://cli.github.com/) installed and authenticated |
-| [slack](./tools/slack/README.md) | Interact with Slack workspaces — list conversations, read message history, send messages, add reactions. Access controlled via command-level allow/deny lists. | `slackcli` installed and authenticated |
-| [confluence](./tools/confluence/README.md) | Read and write Atlassian Confluence — pages, spaces, search, attachments, comments, content properties, and exports. Supports both command-level and space-level access control. | `confluence-cli` installed and authenticated |
-| [chrome](./tools/chrome/README.md) | Control a Chrome browser — navigation, screenshots, DOM inspection, JS evaluation, network monitoring, performance analysis. Each agent gets its own persistent browser profile. | Google Chrome installed |
-| [apple-calendar](./tools/apple-calendar/README.md) | Read events from macOS Calendar — supports iCloud, Google, Exchange, and subscribed calendars. List calendars, view events by date/range, and search by title, notes, or location. Read-only. | macOS, Xcode Command Line Tools |
-| [sessions](./tools/sessions/README.md) | Browse and search conversation history. Agents can only access their own sessions — listing, full message retrieval, and pattern-based search. | — |
-| [agent-to-agent](./tools/agent-to-agent/README.md) | Invoke other Beige agents as sub-agents with multi-turn conversations. Depth-limited and opt-in — no targets allowed until explicitly configured. | — |
+| [github](./tools/github/) | Interact with GitHub via the `gh` CLI — repos, issues, PRs, releases, workflow runs, and more. Repository deletion is permanently blocked. Raw API access is off by default. | [`gh`](https://cli.github.com/) installed and authenticated |
+| [slack](./tools/slack/) | Interact with Slack workspaces — list conversations, read message history, send messages, add reactions. Access controlled via command-level allow/deny lists. | `slackcli` installed and authenticated |
+| [confluence](./tools/confluence/) | Read and write Atlassian Confluence — pages, spaces, search, attachments, comments, content properties, and exports. Supports both command-level and space-level access control. | `confluence-cli` installed and authenticated |
+| [chrome](./tools/chrome/) | Control a Chrome browser — navigation, screenshots, DOM inspection, JS evaluation, network monitoring, performance analysis. Each agent gets its own persistent browser profile. | Google Chrome installed |
+| [apple-calendar](./tools/apple-calendar/) | Read events from macOS Calendar — supports iCloud, Google, Exchange, and subscribed calendars. List calendars, view events by date/range, and search by title, notes, or location. Read-only. | macOS, Xcode Command Line Tools |
+| [sessions](./tools/sessions/) | Browse and search conversation history. Agents can only access their own sessions — listing, full message retrieval, and pattern-based search. | — |
+| [agent-to-agent](./tools/agent-to-agent/) | Invoke other Beige agents as sub-agents with multi-turn conversations. Depth-limited and opt-in — no targets allowed until explicitly configured. | — |
 
 ## Installation
 
@@ -68,7 +68,7 @@ beige install @matthias-hausberger/beige-toolkit
 
 Then reference them by name in your agent config.
 
-## Access control
+## Access Control
 
 Every tool supports fine-grained permission scoping via `config`:
 
@@ -105,6 +105,19 @@ tools: {
 
 See each tool's README for the full list of config options.
 
+## Documentation Structure
+
+Each tool has two documentation files:
+
+| File | Audience | Purpose |
+|---|---|---|
+| `README.md` | **Users / developers** | Overview, prerequisites, configuration reference, setup instructions |
+| `SKILL.md` | **AI agents** | Usage examples, calling conventions, practical workflows |
+
+For complex tools (like Chrome), a `skills/` subfolder contains specialized guides on different capabilities (navigation, interaction, network/performance).
+
+Agents are instructed to read `SKILL.md` first for usage guidance. They can also read `README.md` for configuration details if needed.
+
 ## Development
 
 ### Prerequisites
@@ -123,7 +136,7 @@ cd beige-toolkit
 pnpm install
 ```
 
-### Working locally against Beige
+### Working Locally Against Beige
 
 ```bash
 # In the beige repo — start the gateway from source
@@ -138,7 +151,7 @@ bash scripts/dev-install.sh
 Beige symlinks the local directory, so edits to `tools/` take effect on the
 next gateway restart — no publish/reinstall loop needed.
 
-### Running tests
+### Running Tests
 
 ```bash
 # Run all tests
@@ -154,9 +167,9 @@ pnpm typecheck
 pnpm smoke
 ```
 
-### Adding a new tool
+### Adding a New Tool
 
-1. Create `tools/<name>/` with `tool.json`, `index.ts`, `README.md`
+1. Create `tools/<name>/` with `tool.json`, `index.ts`, `README.md`, `SKILL.md`
 2. Add `"./tools/<name>"` to `toolkit.json` `tools` array
 3. Write tests in `tools/<name>/__tests__/`
 4. Copy the test patterns from `tools/github/__tests__/`
@@ -170,9 +183,9 @@ pnpm publish --access public
 
 The `files` field in `package.json` ensures only the runtime-necessary files
 are included in the npm package: `toolkit.json` and each tool's `tool.json`,
-`index.ts`, and `README.md`. Test files, scripts, and dev config are excluded.
+`index.ts`, `README.md`, `SKILL.md`, and `skills/` subdirectory. Test files, scripts, and dev config are excluded.
 
-## Repository structure
+## Repository Structure
 
 ```
 beige-toolkit/
@@ -182,18 +195,26 @@ beige-toolkit/
 ├── vitest.config.ts
 ├── tools/
 │   ├── github/               # GitHub CLI wrapper
-│   ├── slack/                 # Slack CLI wrapper
-│   ├── confluence/            # Confluence CLI wrapper
-│   ├── chrome/                # Chrome DevTools via MCP
-│   ├── apple-calendar/        # macOS Calendar via EventKit
-│   ├── sessions/              # Conversation history browser
-│   └── agent-to-agent/        # Cross-agent invocation
-│       ├── tool.json          # Tool manifest
-│       ├── index.ts           # Handler (runs on the gateway host)
-│       ├── README.md          # Docs mounted into the agent sandbox
-│       └── __tests__/
-│           ├── unit.test.ts
-│           └── integration.test.ts
+│   │   ├── tool.json         # Tool manifest
+│   │   ├── index.ts          # Handler (runs on the gateway host)
+│   │   ├── README.md         # User/developer documentation
+│   │   ├── SKILL.md          # Agent usage guide
+│   │   └── __tests__/
+│   ├── slack/                # Slack CLI wrapper
+│   ├── confluence/           # Confluence CLI wrapper
+│   ├── chrome/               # Chrome DevTools via MCP
+│   │   ├── tool.json
+│   │   ├── index.ts
+│   │   ├── README.md
+│   │   ├── SKILL.md
+│   │   ├── skills/           # Detailed agent guides
+│   │   │   ├── navigation.md
+│   │   │   ├── interaction.md
+│   │   │   └── network-performance.md
+│   │   └── __tests__/
+│   ├── apple-calendar/       # macOS Calendar via EventKit
+│   ├── sessions/             # Conversation history browser
+│   └── agent-to-agent/       # Cross-agent invocation
 ├── test-utils/               # Shared test helpers
 ├── tests/                    # Toolkit-level smoke tests
 └── scripts/
