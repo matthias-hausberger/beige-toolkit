@@ -1,6 +1,6 @@
 {
   "name": "@matthias-hausberger/beige-toolkit",
-  "version": "0.1.0",
+  "version": "0.1.1-beta1",
   "description": "A collection of tools for Beige agents",
   "publishConfig": {
     "access": "public"
