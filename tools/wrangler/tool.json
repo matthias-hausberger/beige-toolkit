@@ -1,0 +1,51 @@
+{
+  "name": "wrangler",
+  "description": "Interact with Cloudflare Workers, D1 databases, KV namespaces, R2 buckets, and more via the Wrangler CLI. Supports all wrangler commands with configurable allowlist and denylist at any command depth. Authentication is configured per-agent via apiToken and accountId.",
+  "commands": [
+    "deploy [script]                    — deploy a Worker",
+    "dev [script]                       — start local development server",
+    "tail [script]                      — tail logs from deployed Worker",
+    "d1 database list                   — list D1 databases",
+    "d1 database create <name>           — create a D1 database",
+    "d1 database destroy <name>          — destroy a D1 database",
+    "kv namespace list                  — list KV namespaces",
+    "kv key list --namespace-id <id>    — list keys in KV namespace",
+    "r2 bucket list                     — list R2 buckets",
+    "r2 bucket create <name>             — create an R2 bucket",
+    "pages deploy <directory>           — deploy a Pages project",
+    "secrets list                       — list secrets for a Worker"
+  ],
+  "target": "gateway",
+  "config": {
+    "apiToken": {
+      "type": "string",
+      "description": "Cloudflare API token with appropriate permissions. Required. Can use ${ENV_VAR} for injection.",
+      "required": true
+    },
+    "accountId": {
+      "type": "string", 
+      "description": "Cloudflare account ID. Optional if using a token scoped to a single account. Can use ${ENV_VAR} for injection.",
+      "required": false
+    },
+    "allowCommands": {
+      "type": "string | string[]",
+      "description": "If set, only these command paths are permitted. A command path is all subcommand tokens before any flags, e.g. 'd1 database create' or 'kv namespace'. Prefix matching applies: 'd1' allows all d1 subcommands.",
+      "example": ["deploy", "tail", "d1", "kv key"]
+    },
+    "denyCommands": {
+      "type": "string | string[]",
+      "description": "These command paths are always blocked, even if listed in allowCommands. Deny beats allow. Prefix matching applies: 'd1 database destroy' blocks only that command; 'd1' blocks all d1 subcommands.",
+      "example": ["d1 database destroy", "r2 bucket delete"]
+    },
+    "timeout": {
+      "type": "number",
+      "description": "Timeout in seconds for each wrangler invocation. Default: 180.",
+      "default": 180
+    },
+    "wranglerPath": {
+      "type": "string",
+      "description": "Override path to wrangler binary. If not set, checks node_modules/.bin/wrangler then global wrangler.",
+      "example": "/usr/local/bin/wrangler"
+    }
+  }
+}
