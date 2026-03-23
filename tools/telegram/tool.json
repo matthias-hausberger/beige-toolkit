@@ -1,0 +1,49 @@
+{
+  "name": "telegram",
+  "description": "Send messages, photos, documents, and more to Telegram users and groups via the Bot API. Supports threads (topics) in supergroups, markdown/HTML formatting, reply-to, and read-only operations like getting bot info and chat details.",
+  "commands": [
+    "send --chat <id> --text <message> [--thread <id>] [--reply-to <msg-id>] [--parse-mode <mode>] [--silent] [--disable-preview]  — Send a text message",
+    "photo --chat <id> --photo <url|file_id> [--caption <text>] [--thread <id>] [--reply-to <msg-id>]  — Send a photo",
+    "document --chat <id> --document <url|file_id> [--caption <text>] [--thread <id>]  — Send a document/file",
+    "me  — Get bot information",
+    "chat --chat <id>  — Get chat information",
+    "updates [--limit <n>] [--offset <id>]  — Get pending updates"
+  ],
+  "target": "gateway",
+  "config": {
+    "botToken": {
+      "type": "string",
+      "description": "Telegram Bot API token from @BotFather. Required for all operations.",
+      "required": true,
+      "secret": true,
+      "example": "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+    },
+    "defaultChatId": {
+      "type": "string | number",
+      "description": "Default chat/user ID to send messages to. Can be overridden with --chat flag.",
+      "example": "58687206"
+    },
+    "defaultParseMode": {
+      "type": "string",
+      "description": "Default parse mode for message formatting. Options: MarkdownV2, Markdown, HTML.",
+      "enum": ["MarkdownV2", "Markdown", "HTML"],
+      "example": "MarkdownV2"
+    },
+    "allowChats": {
+      "type": "array[string | number]",
+      "description": "Whitelist of chat IDs that can be messaged. If set, only these chats can receive messages.",
+      "example": ["58687206", "-1001234567890"]
+    },
+    "denyChats": {
+      "type": "array[string | number]",
+      "description": "Blacklist of chat IDs that cannot be messaged. Takes precedence over allowChats.",
+      "example": ["-1001234567890"]
+    },
+    "timeout": {
+      "type": "number",
+      "description": "Request timeout in seconds. Default: 30.",
+      "default": 30,
+      "example": 60
+    }
+  }
+}
