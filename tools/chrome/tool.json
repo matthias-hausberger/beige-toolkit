@@ -28,11 +28,6 @@
       "description": "Launch Chrome headlessly (no visible window). Default: false.",
       "default": false
     },
-    "channel": {
-      "type": "string",
-      "description": "Chrome channel to use: stable | beta | dev | canary. Default: stable.",
-      "default": "stable"
-    },
     "viewport": {
       "type": "string",
       "description": "Browser viewport size as WxH, e.g. '1280x720'. Default: unset (Chrome default).",

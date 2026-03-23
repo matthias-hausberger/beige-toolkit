@@ -82,7 +82,6 @@ import type { McpTool } from "./mcp-client.ts";
 export interface ChromeConfig {
   slim?: boolean;
   headless?: boolean;
-  channel?: string;
   viewport?: string;
   idleTimeoutMinutes?: number;
   version?: string;
@@ -367,7 +366,6 @@ export function createHandler(
       version: config.version ?? "latest",
       slim: config.slim ?? false,
       headless: config.headless ?? false,
-      channel: config.channel ?? "stable",
       viewport: config.viewport,
       proxyServer: config.proxyServer,
       acceptInsecureCerts: config.acceptInsecureCerts ?? false,

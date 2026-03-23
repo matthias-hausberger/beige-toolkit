@@ -90,8 +90,6 @@ export interface ProcessConfig {
   slim: boolean;
   /** --headless mode. */
   headless: boolean;
-  /** Chrome channel. */
-  channel: string;
   /** Viewport string e.g. "1280x720". */
   viewport?: string;
   /** Proxy server URL. */
@@ -326,11 +324,10 @@ export function buildMcpArgs(
   //   3. null → omit flag and let chrome-devtools-mcp do its own discovery.
   const exe = config.executablePath
     ?? findBrowserExecutable(config.fallbackToChromium, _existsFn);
-  if (exe) args.push(`--executable-path=${exe}`);
+  if (exe) args.push(`--executablePath=${exe}`);
 
   if (config.slim) args.push("--slim");
   if (config.headless) args.push("--headless");
-  if (config.channel !== "stable") args.push(`--channel=${config.channel}`);
   if (config.viewport) args.push(`--viewport=${config.viewport}`);
   if (config.proxyServer) args.push(`--proxy-server=${config.proxyServer}`);
   if (config.acceptInsecureCerts) args.push("--accept-insecure-certs");

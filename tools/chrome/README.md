@@ -26,7 +26,6 @@ beige tools install github:matthias-hausberger/beige-toolkit
 |-----|---------|-------------|
 | `slim` | `false` | Launch in slim mode — only navigate, evaluate, and screenshot tools are available. Much lower token usage. |
 | `headless` | `false` | Launch Chrome headlessly (no visible window). |
-| `channel` | `"stable"` | Chrome channel: `"stable"`, `"beta"`, `"dev"`, or `"canary"`. |
 | `viewport` | unset (Chrome default) | Browser viewport size as `WxH`, e.g. `"1280x720"`. |
 | `idleTimeoutMinutes` | `30` | Automatically close the browser process after this many minutes of inactivity. Next call respawns it. |
 | `version` | `"latest"` | `chrome-devtools-mcp` npm version to use via npx. |
@@ -145,7 +144,7 @@ agents: {
 
 When `executablePath` is not set, the tool scans a list of well-known binary paths in order:
 
-1. **Chrome paths** — `/opt/google/chrome/chrome`, beta/dev channel variants, `/usr/bin/google-chrome[-stable]`
+1. **Chrome paths** — `/opt/google/chrome/chrome`, beta/dev variants, `/usr/bin/google-chrome[-stable]`
 2. **Chromium paths** *(only if `fallbackToChromium: true`)* — `/usr/bin/chromium`, `/usr/bin/chromium-browser`, Snap, system lib, Flatpak
 
 The first path that exists on disk wins.  If nothing is found, `chrome-devtools-mcp` falls back to its own built-in discovery (which typically finds Chrome via `which google-chrome`).

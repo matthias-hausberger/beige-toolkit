@@ -574,7 +574,6 @@ function makeConfig(overrides: Partial<ProcessConfig> = {}): ProcessConfig {
     version: "latest",
     slim: false,
     headless: false,
-    channel: "stable",
     acceptInsecureCerts: false,
     noUsageStatistics: true,
     idleTimeoutMs: 30_000,
@@ -590,24 +589,24 @@ describe("buildMcpArgs — executable path", () => {
       "/profile",
       () => false
     );
-    expect(args).toContain("--executable-path=/custom/chrome");
+    expect(args).toContain("--executablePath=/custom/chrome");
   });
 
   it("includes --executable-path when auto-detected Chrome is found", () => {
     const exists = (p: string) => p === CHROME_PATHS[0];
     const args = buildMcpArgs(makeConfig(), "/profile", exists);
-    expect(args).toContain(`--executable-path=${CHROME_PATHS[0]}`);
+    expect(args).toContain(`--executablePath=${CHROME_PATHS[0]}`);
   });
 
   it("includes Chromium --executable-path when Chrome not found but fallback enabled", () => {
     const exists = (p: string) => p === CHROMIUM_PATHS[1];
     const args = buildMcpArgs(makeConfig({ fallbackToChromium: true }), "/profile", exists);
-    expect(args).toContain(`--executable-path=${CHROMIUM_PATHS[1]}`);
+    expect(args).toContain(`--executablePath=${CHROMIUM_PATHS[1]}`);
   });
 
   it("omits --executable-path when nothing is found", () => {
     const args = buildMcpArgs(makeConfig(), "/profile", () => false);
-    expect(args.some((a) => a.startsWith("--executable-path"))).toBe(false);
+    expect(args.some((a) => a.startsWith("--executablePath"))).toBe(false);
   });
 
   it("explicit executablePath beats auto-detection", () => {
@@ -618,8 +617,8 @@ describe("buildMcpArgs — executable path", () => {
       "/profile",
       exists
     );
-    expect(args).toContain("--executable-path=/pinned/chrome");
-    expect(args).not.toContain(`--executable-path=${CHROME_PATHS[0]}`);
+    expect(args).toContain("--executablePath=/pinned/chrome");
+    expect(args).not.toContain(`--executablePath=${CHROME_PATHS[0]}`);
   });
 
   it("always includes --user-data-dir", () => {
@@ -639,15 +638,6 @@ describe("buildMcpArgs — other flags", () => {
     expect(args).toContain("--headless");
   });
 
-  it("omits --channel for stable", () => {
-    const args = buildMcpArgs(makeConfig({ channel: "stable" }), "/p", () => false);
-    expect(args.some((a) => a.startsWith("--channel"))).toBe(false);
-  });
-
-  it("adds --channel for non-stable", () => {
-    const args = buildMcpArgs(makeConfig({ channel: "beta" }), "/p", () => false);
-    expect(args).toContain("--channel=beta");
-  });
 });
 
 // ---------------------------------------------------------------------------
