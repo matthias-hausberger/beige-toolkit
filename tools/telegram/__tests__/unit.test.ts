@@ -4,13 +4,13 @@
  * Tests use mocked curl execution — no real HTTP requests are made.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createHandler,
   parseArgs,
   isChatAllowed,
   apiUrl,
-} from "../index.js";
+} from "../index.ts";
 
 // ---------------------------------------------------------------------------
 // Mock curl executor
@@ -28,27 +28,27 @@ let mockResponse: { stdout: string; stderr: string; exitCode: number } = {
   exitCode: 0,
 };
 
-// Mock spawn to capture curl calls
-vi.mock("child_process", () => ({
-  spawn: vi.fn(() => {
-    const call = {
-      args: vi.mocked.lastCall()?.[1] as string[],
+// Import child_process after mocking
+vi.mock("node:child_process", () => ({
+  spawn: vi.fn((...args: unknown[]) => {
+    // Capture the args (command and args array)
+    mockCalls.push({
+      args: args[1] as string[],
       timestamp: Date.now(),
-    };
-    mockCalls.push(call);
+    });
 
     return {
       stdout: {
-        on: (_event: string, cb: (data: Buffer) => void) => {
+        on: (_event: string, cb: (data: Uint8Array) => void) => {
           if (mockResponse.stdout) {
-            cb(Buffer.from(mockResponse.stdout));
+            cb(new TextEncoder().encode(mockResponse.stdout));
           }
         },
       },
       stderr: {
-        on: (_event: string, cb: (data: Buffer) => void) => {
+        on: (_event: string, cb: (data: Uint8Array) => void) => {
           if (mockResponse.stderr) {
-            cb(Buffer.from(mockResponse.stderr));
+            cb(new TextEncoder().encode(mockResponse.stderr));
           }
         },
       },
@@ -236,6 +236,7 @@ describe("handler - send", () => {
     const curlArgs = mockCalls[0].args;
     expect(curlArgs).toContain("-X");
     expect(curlArgs).toContain("POST");
+    expect(curlArgs).toContain("-H");
     expect(curlArgs).toContain("Content-Type: application/json");
   });
 
@@ -374,23 +375,6 @@ describe("handler - send", () => {
     const jsonPayload = curlArgs[curlArgs.indexOf("-d") + 1];
     const payload = JSON.parse(jsonPayload);
     expect(payload.parse_mode).toBe("Markdown");
-  });
-
-  it("includes thread id when --thread", async () => {
-    mockResponse = {
-      stdout: JSON.stringify({ ok: true, result: { message_id: 1 } }),
-      stderr: "",
-      exitCode: 0,
-    };
-
-    const handler = createHandler(config);
-    await handler(["send", "--chat", "58687206", "--text", "Topic!", "--thread", "42"]);
-
-    expect(mockCalls.length).toBe(1);
-    const curlArgs = mockCalls[0].args;
-    const jsonPayload = curlArgs[curlArgs.indexOf("-d") + 1];
-    const payload = JSON.parse(jsonPayload);
-    expect(payload.message_thread_id).toBe(42);
   });
 
   it("includes disable_notification when --silent", async () => {

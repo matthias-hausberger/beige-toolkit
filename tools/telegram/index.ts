@@ -218,6 +218,14 @@ async function handleSendMessage(
     };
   }
 
+  // Ensure chatId is string or number (not boolean)
+  if (typeof chatId === "boolean") {
+    return {
+      output: "Error: Invalid chat ID.",
+      exitCode: 1,
+    };
+  }
+
   const text = parsed.args.text ?? parsed.args.message;
   if (!text) {
     return { output: "Error: No message text specified. Use --text.", exitCode: 1 };
@@ -309,6 +317,14 @@ async function handleSendPhoto(
     };
   }
 
+  // Ensure chatId is string or number (not boolean)
+  if (typeof chatId === "boolean") {
+    return {
+      output: "Error: Invalid chat ID.",
+      exitCode: 1,
+    };
+  }
+
   const photo = parsed.args.photo ?? parsed.args.url ?? parsed.args.file;
   if (!photo) {
     return { output: "Error: No photo specified. Use --photo with a URL or file path.", exitCode: 1 };
@@ -396,6 +412,14 @@ async function handleSendDocument(
   if (!chatId) {
     return {
       output: "Error: No chat ID specified. Use --chat or configure defaultChatId.",
+      exitCode: 1,
+    };
+  }
+
+  // Ensure chatId is string or number (not boolean)
+  if (typeof chatId === "boolean") {
+    return {
+      output: "Error: Invalid chat ID.",
       exitCode: 1,
     };
   }
