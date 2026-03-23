@@ -1,6 +1,6 @@
 # GitHub Tool
 
-Interact with GitHub using the [`gh` CLI](https://cli.github.com/). Routes all commands to `gh` running on the gateway host — authentication is managed by `gh` itself, no token configuration needed in Beige. Repository deletion (`repo delete`) is permanently blocked regardless of configuration.
+Interact with GitHub using the [`gh` CLI](https://cli.github.com/). Routes all commands to `gh` running on the gateway host. Repository deletion (`repo delete`) is permanently blocked regardless of configuration.
 
 ## Installation
 
@@ -24,26 +24,57 @@ beige tools install github:matthias-hausberger/beige-toolkit
 
 | Key | Default | Description |
 |-----|---------|-------------|
+| `token` | *(none)* | GitHub token for authentication. Passed to `gh` via `GH_TOKEN`. Accepts classic PATs (`ghp_…`) and fine-grained PATs (`github_pat_…`). When absent, `gh` uses its locally stored auth. |
 | `allowedCommands` | all commands except `api` | Whitelist of top-level `gh` subcommands (e.g. `"repo"`, `"issue"`, `"pr"`). Set explicitly to include `"api"` for raw API access. |
 | `deniedCommands` | *(none)* | Blacklist of top-level `gh` subcommands. Always blocked, even if in `allowedCommands`. Deny beats allow. |
 
 All `gh` subcommands are permitted by default **except `api`**, which is excluded because it allows arbitrary HTTP methods and GraphQL mutations. When `allowedCommands` is set explicitly, it fully replaces the default list.
+
+## Authentication
+
+The tool supports two authentication modes:
+
+**Token in config (recommended for multi-agent setups)**
+
+Set `token` in the agent's `toolConfigs`. The token is forwarded to `gh` via `GH_TOKEN` and takes precedence over any credential stored on the host, so different agents can authenticate as different GitHub identities.
+
+Both token formats work without any special configuration:
+- Classic personal access tokens: `ghp_…`
+- Fine-grained personal access tokens: `github_pat_…`
+
+```json5
+toolConfigs: {
+  github: {
+    token: "ghp_yourPersonalAccessToken",
+  },
+},
+```
+
+**Host-level auth (zero config)**
+
+When no `token` is configured, the tool inherits the gateway process's environment and `gh` picks up whatever auth is already present on the host (`~/.config/gh/`, `GITHUB_TOKEN` env var, etc.). Run `gh auth login` on the host once, and all agents without an explicit token will share that credential.
 
 ## Prerequisites
 
 | Requirement | Details |
 |---|---|
 | `gh` CLI | Must be installed on the **gateway host** ([install guide](https://cli.github.com/)) |
-| Authentication | Run `gh auth login` on the host before starting Beige |
-
-The tool inherits the gateway process's environment, so `gh` picks up `~/.config/gh/` automatically.
+| Authentication | Either set `token` in config, or run `gh auth login` on the host |
 
 ## Config Examples
+
+**Agent with its own token:**
+```json5
+config: {
+  token: "ghp_yourPersonalAccessToken",
+  allowedCommands: ["repo", "issue", "pr"],
+}
+```
 
 **Read-only agent** (list and view, no mutations):
 ```json5
 config: {
-  allowedCommands: ["repo", "issue", "pr", "release", "run", "api"],
+  allowedCommands: ["repo", "issue", "pr", "release", "run"],
   deniedCommands: [],
 }
 ```
@@ -64,7 +95,7 @@ config: {
 
 ### Per-Agent Configuration (toolConfigs)
 
-Use beige's `toolConfigs` to give different agents different GitHub permissions:
+Use beige's `toolConfigs` to give different agents different GitHub tokens and permissions:
 
 ```json5
 tools: {
@@ -77,27 +108,29 @@ tools: {
 },
 
 agents: {
-  // Triage bot — issues only
+  // Triage bot — issues only, dedicated read-only PAT
   triage: {
     tools: ["github"],
     toolConfigs: {
       github: {
+        token: "ghp_readOnlyTriageToken",
         allowedCommands: ["issue"],
       },
     },
   },
 
-  // DevOps agent — full access including API
+  // DevOps agent — full access including API, own fine-grained PAT
   devops: {
     tools: ["github"],
     toolConfigs: {
       github: {
+        token: "github_pat_11AABBCC_devopsToken",
         allowedCommands: ["repo", "issue", "pr", "release", "run", "api"],
       },
     },
   },
 
-  // Default agent — uses baseline config as-is
+  // Default agent — uses baseline config and host-level gh auth
   assistant: {
     tools: ["github"],
   },
@@ -117,3 +150,4 @@ agents: {
 - **Target**: Gateway (runs on the host, not in the sandbox)
 - **Dependency**: `gh` CLI
 - **Stateless**: Each invocation spawns a fresh `gh` process
+- **Token precedence**: `config.token` → `GH_TOKEN` → host `~/.config/gh/`

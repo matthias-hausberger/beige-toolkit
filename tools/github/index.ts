@@ -9,7 +9,8 @@ type ToolHandler = (
 ) => Promise<{ output: string; exitCode: number }>;
 
 export type GhExecutor = (
-  args: string[]
+  args: string[],
+  token?: string
 ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
 
 /**
@@ -76,12 +77,24 @@ function resolveAllowedCommands(config: Record<string, unknown>): Set<string> {
 
 /**
  * Default executor: spawns the real gh CLI and returns its output.
- * Inherits the gateway process's environment so existing gh auth applies.
+ *
+ * When a token is provided it is passed via the GH_TOKEN environment variable,
+ * which gh (and the underlying git credential helper) recognises for both
+ * classic personal access tokens (ghp_…) and fine-grained PATs (github_pat_…).
+ * This overrides any token that may already be stored in ~/.config/gh/ so the
+ * agent-specific token always takes precedence.
+ *
+ * When no token is provided the process environment is inherited as-is, so
+ * existing gh auth (via `gh auth login`) continues to work.
  */
-export const defaultGhExecutor: GhExecutor = (args) =>
+export const defaultGhExecutor: GhExecutor = (args, token) =>
   new Promise((resolve) => {
+    const env = token
+      ? { ...process.env, GH_TOKEN: token }
+      : process.env;
+
     const proc = spawn("gh", args, {
-      env: process.env,
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -112,9 +125,13 @@ export const defaultGhExecutor: GhExecutor = (args) =>
 /**
  * GitHub Tool — Routes all commands to the gh CLI running on the gateway host.
  *
- * The tool assumes gh is installed and authenticated on the host. Authentication
- * state (e.g. ~/.config/gh/) is picked up automatically via the inherited
- * environment.
+ * Authentication:
+ *   - When `config.token` is set it is forwarded to gh via GH_TOKEN, taking
+ *     precedence over any locally stored credential.  Both classic personal
+ *     access tokens (ghp_…) and fine-grained PATs (github_pat_…) are accepted
+ *     by gh without any special handling on our side.
+ *   - When no token is configured, the tool falls back to whatever gh auth is
+ *     already present on the host (~/.config/gh/, GITHUB_TOKEN, etc.).
  *
  * Access control: allowedCommands and deniedCommands restrict which top-level
  * gh subcommands an agent may invoke.
@@ -127,6 +144,9 @@ export function createHandler(
   { executor = defaultGhExecutor }: { executor?: GhExecutor } = {}
 ): ToolHandler {
   const allowedCommands = resolveAllowedCommands(config);
+  const token = typeof config.token === "string" && config.token.trim()
+    ? config.token.trim()
+    : undefined;
 
   return async (args: string[]) => {
     if (args.length === 0) {
@@ -164,7 +184,7 @@ export function createHandler(
       };
     }
 
-    const result = await executor([subcommand, ...rest]);
+    const result = await executor([subcommand, ...rest], token);
 
     // On success return stdout. On failure include both streams so the agent
     // can diagnose the problem.

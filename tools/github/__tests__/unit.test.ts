@@ -202,6 +202,97 @@ describe("successful execution", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Token authentication
+// ---------------------------------------------------------------------------
+
+describe("token authentication", () => {
+  it("passes token to the executor when config.token is set", async () => {
+    const fake = createFakeGhClient();
+    fake.register(["repo", "list"], { stdout: "myorg/myrepo", exitCode: 0 });
+
+    const handler = createHandler(
+      { token: "ghp_testtoken123" },
+      { executor: fake.run }
+    );
+    await handler(["repo", "list"]);
+
+    expect(fake.tokens[0]).toBe("ghp_testtoken123");
+  });
+
+  it("passes PAT (github_pat_…) to the executor unchanged", async () => {
+    const fake = createFakeGhClient();
+    fake.register(["repo", "list"], { stdout: "myorg/myrepo", exitCode: 0 });
+
+    const handler = createHandler(
+      { token: "github_pat_11AABBCC_longfinegrainedsecret" },
+      { executor: fake.run }
+    );
+    await handler(["repo", "list"]);
+
+    expect(fake.tokens[0]).toBe("github_pat_11AABBCC_longfinegrainedsecret");
+  });
+
+  it("passes undefined to the executor when no token is configured", async () => {
+    const fake = createFakeGhClient();
+    fake.register(["repo", "list"], { stdout: "myorg/myrepo", exitCode: 0 });
+
+    const handler = createHandler({}, { executor: fake.run });
+    await handler(["repo", "list"]);
+
+    expect(fake.tokens[0]).toBeUndefined();
+  });
+
+  it("trims whitespace from the token value", async () => {
+    const fake = createFakeGhClient();
+    fake.register(["repo", "list"], { stdout: "myorg/myrepo", exitCode: 0 });
+
+    const handler = createHandler(
+      { token: "  ghp_trimmed  " },
+      { executor: fake.run }
+    );
+    await handler(["repo", "list"]);
+
+    expect(fake.tokens[0]).toBe("ghp_trimmed");
+  });
+
+  it("treats an empty token string as no token", async () => {
+    const fake = createFakeGhClient();
+    fake.register(["repo", "list"], { stdout: "myorg/myrepo", exitCode: 0 });
+
+    const handler = createHandler({ token: "" }, { executor: fake.run });
+    await handler(["repo", "list"]);
+
+    expect(fake.tokens[0]).toBeUndefined();
+  });
+
+  it("treats a whitespace-only token string as no token", async () => {
+    const fake = createFakeGhClient();
+    fake.register(["repo", "list"], { stdout: "myorg/myrepo", exitCode: 0 });
+
+    const handler = createHandler({ token: "   " }, { executor: fake.run });
+    await handler(["repo", "list"]);
+
+    expect(fake.tokens[0]).toBeUndefined();
+  });
+
+  it("token does not affect access-control checks", async () => {
+    const { handler } = makeHandler({ token: "ghp_sometoken", allowedCommands: ["issue"] });
+    const result = await handler(["repo", "list"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("Permission denied");
+  });
+
+  it("token does not affect hard-blocked operations", async () => {
+    const fake = createFakeGhClient();
+    const handler = createHandler({ token: "ghp_sometoken" }, { executor: fake.run });
+    const result = await handler(["repo", "delete", "myorg/myrepo"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("permanently blocked");
+    expect(fake.calls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Failed gh execution
 // ---------------------------------------------------------------------------
 

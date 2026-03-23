@@ -16,6 +16,11 @@
   ],
   "target": "gateway",
   "config": {
+    "token": {
+      "type": "string",
+      "description": "GitHub token used to authenticate gh. Passed via GH_TOKEN and takes precedence over any credential stored on the host. Accepts classic personal access tokens (ghp_…) and fine-grained PATs (github_pat_…). When absent, gh falls back to its locally stored auth (~/.config/gh/, GITHUB_TOKEN env var, etc.).",
+      "example": "ghp_yourPersonalAccessToken"
+    },
     "allowedCommands": {
       "type": "string | string[]",
       "description": "Whitelist of top-level gh subcommands (e.g. 'repo', 'issue', 'pr'). Defaults to all when absent.",

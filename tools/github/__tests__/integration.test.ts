@@ -53,6 +53,16 @@ describe("createHandler", () => {
       createHandler({ allowedCommands: ["repo"], deniedCommands: ["api"] })
     ).not.toThrow();
   });
+
+  it("accepts a token config value", () => {
+    expect(() => createHandler({ token: "ghp_abc123" })).not.toThrow();
+  });
+
+  it("accepts a fine-grained PAT token config value", () => {
+    expect(() =>
+      createHandler({ token: "github_pat_11AABBCC_longfinegrainedsecret" })
+    ).not.toThrow();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -101,6 +111,30 @@ describe("end-to-end with fake gh", () => {
 
     assertFailure(result);
     expect(result.output).toContain("pull request #999 not found");
+  });
+
+  it("forwards the configured token to the executor", async () => {
+    const fake = createFakeGhClient();
+    fake.register(["repo", "list"], { stdout: "myorg/myrepo\n", exitCode: 0 });
+
+    const handler = createHandler(
+      { token: "ghp_integrationtoken" },
+      { executor: fake.run }
+    );
+    const result = await handler(["repo", "list"]);
+
+    assertSuccess(result);
+    expect(fake.tokens[0]).toBe("ghp_integrationtoken");
+  });
+
+  it("passes no token when config.token is absent", async () => {
+    const fake = createFakeGhClient();
+    fake.register(["repo", "list"], { stdout: "myorg/myrepo\n", exitCode: 0 });
+
+    const handler = createHandler({}, { executor: fake.run });
+    await handler(["repo", "list"]);
+
+    expect(fake.tokens[0]).toBeUndefined();
   });
 
   it("respects access-control in the full flow", async () => {
