@@ -1,0 +1,33 @@
+{
+  "name": "http",
+  "description": "Make HTTP requests to external APIs and services. Supports GET, POST, PUT, DELETE methods with custom headers and configurable timeouts.",
+  "commands": [
+    "get <url> [--header <key=value>]... [--timeout <seconds>]     — Make a GET request",
+    "post <url> [--header <key=value>]... [--timeout <seconds>] -- <body>  — Make a POST request",
+    "put <url> [--header <key=value>]... [--timeout <seconds>] -- <body>   — Make a PUT request",
+    "delete <url> [--header <key=value>]... [--timeout <seconds>]  — Make a DELETE request"
+  ],
+  "target": "gateway",
+  "config": {
+    "allowDomains": {
+      "type": "string | string[]",
+      "description": "Whitelist of permitted domains. Defaults to all domains when absent.",
+      "example": ["api.github.com", "api.example.com"]
+    },
+    "denyDomains": {
+      "type": "string | string[]",
+      "description": "Blacklist of blocked domains. Takes precedence over allowDomains.",
+      "example": ["internal.company.com"]
+    },
+    "defaultTimeout": {
+      "type": "number",
+      "description": "Default timeout in seconds (default: 30)",
+      "example": 60
+    },
+    "maxResponseSize": {
+      "type": "number",
+      "description": "Maximum response size in bytes (default: 1MB)",
+      "example": 5242880
+    }
+  }
+}

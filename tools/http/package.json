@@ -1,0 +1,5 @@
+{
+  "name": "@beige/tool-http",
+  "private": true,
+  "type": "module"
+}
