@@ -10,7 +10,14 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createHandler, parseArgs, type ProcessManagerLike } from "../index.js";
 import type { ManagedProcess } from "../process-manager.js";
-import { setChromeDownloadPreferences } from "../process-manager.js";
+import {
+  setChromeDownloadPreferences,
+  findBrowserExecutable,
+  buildMcpArgs,
+  CHROME_PATHS,
+  CHROMIUM_PATHS,
+  type ProcessConfig,
+} from "../process-manager.js";
 import type { McpToolCallResult, McpTool } from "../mcp-client.js";
 
 // ---------------------------------------------------------------------------
@@ -513,5 +520,150 @@ describe("setChromeDownloadPreferences", () => {
     const profileDir = join(tmpBeigeDir, "profile-new");
     setChromeDownloadPreferences(profileDir, "/download/path");
     expect(existsSync(join(profileDir, "Default", "Preferences"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findBrowserExecutable
+// ---------------------------------------------------------------------------
+
+describe("findBrowserExecutable", () => {
+  it("returns the first Chrome path that exists", () => {
+    const exists = (p: string) => p === CHROME_PATHS[1]; // beta path
+    expect(findBrowserExecutable(true, exists)).toBe(CHROME_PATHS[1]);
+  });
+
+  it("returns the first Chromium path when no Chrome exists and fallback is true", () => {
+    const exists = (p: string) => p === CHROMIUM_PATHS[0];
+    expect(findBrowserExecutable(true, exists)).toBe(CHROMIUM_PATHS[0]);
+  });
+
+  it("returns null when no Chrome exists and fallback is false", () => {
+    const exists = (p: string) => p === CHROMIUM_PATHS[0]; // only Chromium present
+    expect(findBrowserExecutable(false, exists)).toBeNull();
+  });
+
+  it("returns null when nothing exists", () => {
+    const exists = () => false;
+    expect(findBrowserExecutable(true, exists)).toBeNull();
+    expect(findBrowserExecutable(false, exists)).toBeNull();
+  });
+
+  it("prefers Chrome over Chromium when both exist", () => {
+    // Both the first Chrome path and the first Chromium path are present
+    const exists = (p: string) =>
+      p === CHROME_PATHS[0] || p === CHROMIUM_PATHS[0];
+    expect(findBrowserExecutable(true, exists)).toBe(CHROME_PATHS[0]);
+  });
+
+  it("returns last Chromium path if it is the only one present", () => {
+    const last = CHROMIUM_PATHS[CHROMIUM_PATHS.length - 1];
+    const exists = (p: string) => p === last;
+    expect(findBrowserExecutable(true, exists)).toBe(last);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildMcpArgs — executable path resolution
+// ---------------------------------------------------------------------------
+
+/** Minimal valid ProcessConfig for buildMcpArgs tests. */
+function makeConfig(overrides: Partial<ProcessConfig> = {}): ProcessConfig {
+  return {
+    beigeDataDir: "/beige",
+    version: "latest",
+    slim: false,
+    headless: false,
+    channel: "stable",
+    acceptInsecureCerts: false,
+    noUsageStatistics: true,
+    idleTimeoutMs: 30_000,
+    fallbackToChromium: true,
+    ...overrides,
+  };
+}
+
+describe("buildMcpArgs — executable path", () => {
+  it("includes --executable-path when executablePath is set explicitly", () => {
+    const args = buildMcpArgs(
+      makeConfig({ executablePath: "/custom/chrome" }),
+      "/profile",
+      () => false
+    );
+    expect(args).toContain("--executable-path=/custom/chrome");
+  });
+
+  it("includes --executable-path when auto-detected Chrome is found", () => {
+    const exists = (p: string) => p === CHROME_PATHS[0];
+    const args = buildMcpArgs(makeConfig(), "/profile", exists);
+    expect(args).toContain(`--executable-path=${CHROME_PATHS[0]}`);
+  });
+
+  it("includes Chromium --executable-path when Chrome not found but fallback enabled", () => {
+    const exists = (p: string) => p === CHROMIUM_PATHS[1];
+    const args = buildMcpArgs(makeConfig({ fallbackToChromium: true }), "/profile", exists);
+    expect(args).toContain(`--executable-path=${CHROMIUM_PATHS[1]}`);
+  });
+
+  it("omits --executable-path when nothing is found", () => {
+    const args = buildMcpArgs(makeConfig(), "/profile", () => false);
+    expect(args.some((a) => a.startsWith("--executable-path"))).toBe(false);
+  });
+
+  it("explicit executablePath beats auto-detection", () => {
+    // Both a real Chrome path exists AND executablePath is configured
+    const exists = (p: string) => p === CHROME_PATHS[0];
+    const args = buildMcpArgs(
+      makeConfig({ executablePath: "/pinned/chrome" }),
+      "/profile",
+      exists
+    );
+    expect(args).toContain("--executable-path=/pinned/chrome");
+    expect(args).not.toContain(`--executable-path=${CHROME_PATHS[0]}`);
+  });
+
+  it("always includes --user-data-dir", () => {
+    const args = buildMcpArgs(makeConfig(), "/my/profile", () => false);
+    expect(args).toContain("--user-data-dir=/my/profile");
+  });
+});
+
+describe("buildMcpArgs — other flags", () => {
+  it("adds --slim when slim is true", () => {
+    const args = buildMcpArgs(makeConfig({ slim: true }), "/p", () => false);
+    expect(args).toContain("--slim");
+  });
+
+  it("adds --headless when headless is true", () => {
+    const args = buildMcpArgs(makeConfig({ headless: true }), "/p", () => false);
+    expect(args).toContain("--headless");
+  });
+
+  it("omits --channel for stable", () => {
+    const args = buildMcpArgs(makeConfig({ channel: "stable" }), "/p", () => false);
+    expect(args.some((a) => a.startsWith("--channel"))).toBe(false);
+  });
+
+  it("adds --channel for non-stable", () => {
+    const args = buildMcpArgs(makeConfig({ channel: "beta" }), "/p", () => false);
+    expect(args).toContain("--channel=beta");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// display config — forwarded through createHandler → ProcessManager env
+// ---------------------------------------------------------------------------
+
+describe("display config", () => {
+  it("error message mentions executablePath when browser start fails", async () => {
+    const failPm: ProcessManagerLike = {
+      async getOrCreate() { throw new Error("ENOENT chrome"); },
+      killAll() {},
+    };
+    const handler = createHandler({}, { processManager: failPm });
+    const result = await handler(["take_snapshot"], undefined, makeSession("coder"));
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("executablePath");
+    expect(result.output).toContain("Chrome or Chromium");
   });
 });

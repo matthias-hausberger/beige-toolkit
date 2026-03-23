@@ -31,6 +31,53 @@ import { resolve, join } from "path";
 import { McpClient, type McpClientLike } from "./mcp-client.ts";
 
 // ---------------------------------------------------------------------------
+// Browser detection
+// ---------------------------------------------------------------------------
+
+/** Known Google Chrome binary locations (tried in order, first match wins). */
+export const CHROME_PATHS = [
+  "/opt/google/chrome/chrome",           // Google-packaged deb/rpm (most common on Linux)
+  "/opt/google/chrome-beta/chrome",      // beta channel
+  "/opt/google/chrome-unstable/chrome",  // dev channel
+  "/usr/bin/google-chrome",              // some distro packages
+  "/usr/bin/google-chrome-stable",       // explicit stable symlink
+];
+
+/** Known Chromium binary locations (tried in order, first match wins). */
+export const CHROMIUM_PATHS = [
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/snap/bin/chromium",
+  "/usr/lib/chromium/chromium",
+  "/app/bin/chromium",                   // Flatpak
+];
+
+/**
+ * Find an available browser executable.
+ *
+ * Tries Chrome paths first.  If none exist and `fallbackToChromium` is true,
+ * tries Chromium paths.  Returns `null` when nothing is found — in that case
+ * chrome-devtools-mcp will use its own default discovery logic.
+ *
+ * The `_existsFn` parameter exists solely for unit-testing without touching
+ * the real filesystem.
+ */
+export function findBrowserExecutable(
+  fallbackToChromium: boolean,
+  _existsFn: (p: string) => boolean = existsSync
+): string | null {
+  for (const p of CHROME_PATHS) {
+    if (_existsFn(p)) return p;
+  }
+  if (fallbackToChromium) {
+    for (const p of CHROMIUM_PATHS) {
+      if (_existsFn(p)) return p;
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -55,6 +102,24 @@ export interface ProcessConfig {
   noUsageStatistics: boolean;
   /** Idle timeout in milliseconds before auto-kill. */
   idleTimeoutMs: number;
+  /**
+   * Absolute path to the browser binary.
+   * When set, skips auto-detection entirely and passes the path directly to
+   * chrome-devtools-mcp via --executable-path.
+   */
+  executablePath?: string;
+  /**
+   * Fall back to Chromium if no Chrome binary is found during auto-detection.
+   * Default: true.
+   */
+  fallbackToChromium: boolean;
+  /**
+   * X11 display to use when spawning the browser (Linux only).
+   * Set to e.g. ":1" to open the browser on TigerVNC virtual screen 1.
+   * Defaults to inheriting the gateway process's DISPLAY env var.
+   * Has no effect when headless is true or on non-Linux platforms.
+   */
+  display?: string;
 }
 
 export interface ManagedProcess {
@@ -155,17 +220,25 @@ export class ProcessManager {
     // Build CLI args for chrome-devtools-mcp
     const mcpArgs = buildMcpArgs(config, profileDir);
 
+    // Build spawn environment.
+    // DISPLAY is only meaningful on Linux/X11; setting it on other platforms
+    // is harmless but also has no effect.
+    const spawnEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      // Disable update checks that can produce unexpected stdout noise
+      NO_UPDATE_NOTIFIER: "1",
+    };
+    if (config.display) {
+      spawnEnv.DISPLAY = config.display;
+    }
+
     // Spawn via npx
     const child = spawn(
       "npx",
       ["-y", `chrome-devtools-mcp@${config.version}`, ...mcpArgs],
       {
         stdio: ["pipe", "pipe", "pipe"],
-        env: {
-          ...process.env,
-          // Disable update checks that can produce unexpected stdout noise
-          NO_UPDATE_NOTIFIER: "1",
-        },
+        env: spawnEnv,
       }
     );
 
@@ -232,10 +305,28 @@ export class ProcessManager {
 // CLI arg builder
 // ---------------------------------------------------------------------------
 
-function buildMcpArgs(config: ProcessConfig, profileDir: string): string[] {
+/**
+ * Build CLI arguments for chrome-devtools-mcp.
+ *
+ * The optional `_existsFn` is injectable for unit tests so we can simulate
+ * filesystem state without touching the real disk.
+ */
+export function buildMcpArgs(
+  config: ProcessConfig,
+  profileDir: string,
+  _existsFn: (p: string) => boolean = existsSync
+): string[] {
   const args: string[] = [
     `--user-data-dir=${profileDir}`,
   ];
+
+  // Resolve browser executable:
+  //   1. Explicit config path (user knows exactly where their browser is).
+  //   2. Auto-detect: Chrome first, then Chromium if fallbackToChromium is set.
+  //   3. null → omit flag and let chrome-devtools-mcp do its own discovery.
+  const exe = config.executablePath
+    ?? findBrowserExecutable(config.fallbackToChromium, _existsFn);
+  if (exe) args.push(`--executable-path=${exe}`);
 
   if (config.slim) args.push("--slim");
   if (config.headless) args.push("--headless");

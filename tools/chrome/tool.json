@@ -77,6 +77,21 @@
       "type": "boolean",
       "description": "Accept insecure TLS certificates. Default: false.",
       "default": false
+    },
+    "executablePath": {
+      "type": "string",
+      "description": "Absolute path to the Chrome or Chromium binary. Overrides auto-detection entirely. Optional.",
+      "example": "/usr/bin/chromium-browser"
+    },
+    "fallbackToChromium": {
+      "type": "boolean",
+      "description": "If no Chrome binary is found during auto-detection, try Chromium paths as a fallback. Default: true.",
+      "default": true
+    },
+    "display": {
+      "type": "string",
+      "description": "X11 display for the browser window (Linux only). Use with TigerVNC or other virtual X11 servers, e.g. ':1' opens the browser on virtual screen 1. Defaults to inheriting the gateway's DISPLAY environment variable. Has no effect when headless is true or on macOS/Windows.",
+      "example": ":1"
     }
   }
 }

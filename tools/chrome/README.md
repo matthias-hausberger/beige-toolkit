@@ -36,6 +36,9 @@ beige tools install github:matthias-hausberger/beige-toolkit
 | `noUsageStatistics` | `true` | Opt out of Google usage statistics collection. |
 | `proxyServer` | *(none)* | Proxy server URL, e.g. `"http://proxy:8080"`. |
 | `acceptInsecureCerts` | `false` | Accept insecure TLS certificates. |
+| `executablePath` | *(auto-detect)* | Absolute path to the Chrome or Chromium binary. Overrides auto-detection. |
+| `fallbackToChromium` | `true` | If no Chrome binary is found, automatically try known Chromium paths. |
+| `display` | *(inherited)* | X11 display for the browser window, e.g. `":1"` for TigerVNC virtual screen 1. Linux only — no effect on macOS/Windows or when `headless: true`. |
 
 All MCP tools are permitted by default (no allow/deny restrictions). The browser launches lazily on first use and auto-closes after the idle timeout.
 
@@ -43,7 +46,7 @@ All MCP tools are permitted by default (no allow/deny restrictions). The browser
 
 | Requirement | Details |
 |---|---|
-| Google Chrome | Installed on the gateway host (stable channel by default) |
+| Google Chrome or Chromium | Installed on the gateway host. Chrome is tried first; Chromium is used as a fallback when `fallbackToChromium: true` (default). |
 | Node.js + `npx` | Required to run `chrome-devtools-mcp` |
 
 ## Browser Process Lifecycle
@@ -138,6 +141,54 @@ agents: {
 
 > **Note:** `toolConfigs` values are deep-merged with the top-level config. In the example above, the QA agent's effective config is `{ headless: false, timeout: 120 }` — the overrides replace the baseline values, while other baseline settings are preserved.
 
+## Browser Detection & Chromium Fallback
+
+When `executablePath` is not set, the tool scans a list of well-known binary paths in order:
+
+1. **Chrome paths** — `/opt/google/chrome/chrome`, beta/dev channel variants, `/usr/bin/google-chrome[-stable]`
+2. **Chromium paths** *(only if `fallbackToChromium: true`)* — `/usr/bin/chromium`, `/usr/bin/chromium-browser`, Snap, system lib, Flatpak
+
+The first path that exists on disk wins.  If nothing is found, `chrome-devtools-mcp` falls back to its own built-in discovery (which typically finds Chrome via `which google-chrome`).
+
+To pin a specific binary regardless of what is installed:
+
+```json5
+config: {
+  executablePath: "/usr/bin/chromium-browser",
+}
+```
+
+To disable the Chromium fallback entirely (fail if Chrome is not present):
+
+```json5
+config: {
+  fallbackToChromium: false,
+}
+```
+
+## VNC / Virtual Displays (Linux)
+
+On Linux you can route the browser window to a specific TigerVNC (or other X11) virtual screen instead of the physical display. This is useful when the gateway host is headless but you still want a visible, interactive browser session inside a VNC framebuffer.
+
+**How it works:** the tool sets the `DISPLAY` environment variable on the `chrome-devtools-mcp` child process, which inherits it into the Chrome subprocess. Chrome then connects to the specified X11 server.
+
+**Requirements:**
+- A running VNC server for the target display (e.g. `tigervncserver :1` already started).
+- `headless: false` — headless mode renders entirely in memory and ignores `DISPLAY`.
+
+**Config:**
+
+```json5
+config: {
+  headless: false,
+  display: ":1",   // open on TigerVNC virtual screen 1
+}
+```
+
+Use `:2`, `:3`, … for additional VNC sessions.  If `display` is omitted, the browser inherits the gateway process's own `DISPLAY` (or none, if the gateway has no display set).
+
+> **Note:** The agent cannot choose or change the display at runtime — `display` is a static gateway-operator configuration. This is intentional: display routing is infrastructure, not agent behaviour.
+
 ## Security Model
 
 | Concern | How it is handled |
@@ -153,7 +204,7 @@ agents: {
 | Error | Cause |
 |---|---|
 | `agent identity unknown` | `BEIGE_AGENT_NAME` not set — requires beige ≥ 0.1.3 |
-| `failed to start chrome-devtools-mcp` | `npx` not found, or Chrome not installed |
+| `failed to start chrome-devtools-mcp` | `npx` not found, or no Chrome/Chromium binary found. Set `executablePath` or install a browser. |
 | `process exited unexpectedly` | Chrome crashed — next call respawns |
 | `Permission denied: tool 'X' is blocked by denyTools` | Tool is in the denylist |
 | `Permission denied: tool 'X' is not in allowTools` | allowTools is set and tool not listed |

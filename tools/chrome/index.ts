@@ -92,6 +92,23 @@ export interface ChromeConfig {
   timeout?: number;
   proxyServer?: string;
   acceptInsecureCerts?: boolean;
+  /**
+   * Absolute path to the Chrome/Chromium binary.
+   * Overrides auto-detection entirely.  Optional.
+   */
+  executablePath?: string;
+  /**
+   * Fall back to Chromium if no Chrome binary is found during auto-detection.
+   * Default: true.
+   */
+  fallbackToChromium?: boolean;
+  /**
+   * X11 display for the browser window (Linux / TigerVNC only).
+   * E.g. ":1" opens Chrome on virtual screen 1.
+   * Defaults to inheriting the gateway's DISPLAY.
+   * Has no effect when headless is true or on non-Linux platforms.
+   */
+  display?: string;
 }
 
 /** Subset of ProcessManager used — injectable for testing. */
@@ -356,6 +373,9 @@ export function createHandler(
       acceptInsecureCerts: config.acceptInsecureCerts ?? false,
       noUsageStatistics: config.noUsageStatistics ?? true,
       idleTimeoutMs,
+      executablePath: config.executablePath,
+      fallbackToChromium: config.fallbackToChromium ?? true,
+      display: config.display,
     });
 
   return async (
@@ -396,7 +416,9 @@ export function createHandler(
           "Error: failed to start chrome-devtools-mcp.",
           err instanceof Error ? err.message : String(err),
           "",
-          "Make sure Node.js and npx are on the gateway's PATH.",
+          "Make sure Node.js and npx are on the gateway's PATH, and that",
+          "Chrome or Chromium is installed.  You can also set executablePath",
+          "in the tool config to point directly at your browser binary.",
           "The browser process will be retried on your next call.",
         ].join("\n"),
         exitCode: 1,
