@@ -1,0 +1,160 @@
+{
+  "$schema": "../tool.schema.json",
+  "name": "archive",
+  "version": "1.0.0",
+  "description": "Create and extract archives (zip, tar, tar.gz, tar.bz2)",
+  "commands": [
+    {
+      "name": "create",
+      "description": "Create a new archive from files/directories",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "archive": {
+            "type": "string",
+            "description": "Path to the archive file to create"
+          },
+          "files": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Files/directories to include in the archive"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["zip", "tar", "tar.gz", "tar.bz2"],
+            "default": "tar.gz",
+            "description": "Archive format (auto-detected from extension if not specified)"
+          },
+          "compressLevel": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 9,
+            "default": 6,
+            "description": "Compression level (1=fast, 9=best, only for gzip/bzip2)"
+          },
+          "workingDir": {
+            "type": "string",
+            "description": "Working directory for relative paths"
+          }
+        },
+        "required": ["archive", "files"]
+      }
+    },
+    {
+      "name": "extract",
+      "description": "Extract files from an archive",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "archive": {
+            "type": "string",
+            "description": "Path to the archive file to extract"
+          },
+          "outputDir": {
+            "type": "string",
+            "default": ".",
+            "description": "Directory to extract files to"
+          },
+          "files": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Specific files/patterns to extract (optional, extracts all if not specified)"
+          },
+          "stripComponents": {
+            "type": "number",
+            "minimum": 0,
+            "default": 0,
+            "description": "Remove leading path components (tar only)"
+          },
+          "overwrite": {
+            "type": "boolean",
+            "default": false,
+            "description": "Overwrite existing files"
+          }
+        },
+        "required": ["archive"]
+      }
+    },
+    {
+      "name": "list",
+      "description": "List contents of an archive",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "archive": {
+            "type": "string",
+            "description": "Path to the archive file to list"
+          },
+          "verbose": {
+            "type": "boolean",
+            "default": false,
+            "description": "Show detailed information (size, date, etc.)"
+          }
+        },
+        "required": ["archive"]
+      }
+    },
+    {
+      "name": "test",
+      "description": "Test archive integrity",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "archive": {
+            "type": "string",
+            "description": "Path to the archive file to test"
+          }
+        },
+        "required": ["archive"]
+      }
+    },
+    {
+      "name": "add",
+      "description": "Add files to an existing archive (zip only)",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "archive": {
+            "type": "string",
+            "description": "Path to the zip archive"
+          },
+          "files": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Files to add to the archive"
+          },
+          "workingDir": {
+            "type": "string",
+            "description": "Working directory for relative paths"
+          }
+        },
+        "required": ["archive", "files"]
+      }
+    }
+  ],
+  "config": {
+    "type": "object",
+    "properties": {
+      "allowPaths": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Allowed path patterns (glob). If set, only these paths can be archived/extracted."
+      },
+      "denyPaths": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Denied path patterns (glob). These paths can never be accessed."
+      },
+      "maxArchiveSize": {
+        "type": "string",
+        "default": "1GB",
+        "description": "Maximum archive size for extraction (e.g., '100MB', '1GB')"
+      },
+      "maxFileSize": {
+        "type": "string",
+        "default": "100MB",
+        "description": "Maximum individual file size when extracting"
+      }
+    }
+  }
+}
