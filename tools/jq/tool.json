@@ -1,0 +1,51 @@
+{
+  "$schema": "../../schemas/tool.schema.json",
+  "name": "jq",
+  "version": "1.0.0",
+  "description": "JSON and YAML manipulation with jq-like query syntax",
+  "category": "data",
+  "tags": ["json", "yaml", "query", "transform", "filter"],
+  "executable": "index.ts",
+  "commands": {
+    "query": {
+      "description": "Execute a jq-like query on JSON/YAML data",
+      "usage": "<query> [-f <file>] [--input-format json|yaml] [--output-format json|yaml|compact]",
+      "examples": [
+        "jq '.name' -f data.json",
+        "jq '.users | map(.name)' -f users.json",
+        "jq '.items | length' -f data.json",
+        "jq '.' -f config.yaml --input-format yaml --output-format json"
+      ]
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "maxFileSize": {
+        "type": "number",
+        "description": "Maximum input file size in bytes (default: 10MB)",
+        "default": 10485760
+      },
+      "maxDepth": {
+        "type": "number",
+        "description": "Maximum output depth (default: 10)",
+        "default": 10
+      },
+      "allowedPaths": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Allowed paths for file operations (default: all)"
+      },
+      "deniedPaths": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Denied paths for file operations"
+      },
+      "allowWrite": {
+        "type": "boolean",
+        "description": "Allow writing files (default: true)",
+        "default": true
+      }
+    }
+  }
+}

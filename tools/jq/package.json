@@ -1,0 +1,19 @@
+{
+  "name": "@beige-toolkit/jq",
+  "version": "1.0.0",
+  "description": "JSON and YAML manipulation with jq-like query syntax",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "test": "node --test __tests__/unit.test.ts"
+  },
+  "keywords": [
+    "json",
+    "yaml",
+    "jq",
+    "query",
+    "transform",
+    "filter"
+  ],
+  "license": "MIT"
+}
