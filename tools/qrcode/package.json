@@ -1,0 +1,21 @@
+{
+  "name": "@beige-toolkit/qrcode",
+  "version": "1.0.0",
+  "description": "Generate QR codes from text, URLs, or data",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "test": "deno test __tests__/unit.test.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "keywords": [
+    "qrcode",
+    "qr",
+    "generator",
+    "barcode",
+    "beige",
+    "beige-toolkit"
+  ],
+  "license": "MIT"
+}

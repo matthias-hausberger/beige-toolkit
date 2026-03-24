@@ -1,0 +1,74 @@
+{
+  "name": "qrcode",
+  "version": "1.0.0",
+  "description": "Generate QR codes from text, URLs, or data",
+  "tools": {
+    "qrcode": {
+      "exec": "index.ts",
+      "description": "Generate QR codes that can be saved as images or displayed as ASCII art",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Text or URL to encode in the QR code"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["ascii", "svg", "png", "terminal"],
+            "default": "terminal",
+            "description": "Output format: ascii (text art), svg (vector), png (binary), terminal (colored block)"
+          },
+          "output": {
+            "type": "string",
+            "description": "File path to save the QR code (for svg/png formats). If not specified, outputs to stdout."
+          },
+          "size": {
+            "type": "number",
+            "default": 25,
+            "description": "Size of the QR code (width/height in characters for ascii, pixels for png/svg)"
+          },
+          "errorCorrection": {
+            "type": "string",
+            "enum": ["L", "M", "Q", "H"],
+            "default": "M",
+            "description": "Error correction level: L (7%), M (15%), Q (25%), H (30%)"
+          },
+          "darkColor": {
+            "type": "string",
+            "default": "#000000",
+            "description": "Color for dark modules (svg/png only)"
+          },
+          "lightColor": {
+            "type": "string",
+            "default": "#FFFFFF",
+            "description": "Color for light modules (svg/png only)"
+          }
+        },
+        "required": ["text"]
+      }
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "defaultFormat": {
+        "type": "string",
+        "enum": ["ascii", "svg", "png", "terminal"],
+        "default": "terminal",
+        "description": "Default output format for QR codes"
+      },
+      "defaultSize": {
+        "type": "number",
+        "default": 25,
+        "description": "Default size for QR codes"
+      },
+      "defaultErrorCorrection": {
+        "type": "string",
+        "enum": ["L", "M", "Q", "H"],
+        "default": "M",
+        "description": "Default error correction level"
+      }
+    }
+  }
+}
