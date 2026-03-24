@@ -1,0 +1,33 @@
+{
+  "name": "schedule",
+  "description": "Create and manage scheduled tasks. Schedules persist across restarts and can trigger agent prompts at specific times or intervals.",
+  "commands": [
+    "create <cron-expression> <message...>     — Create a new scheduled task",
+    "list                                      — List all schedules for this agent",
+    "delete <schedule-id>                      — Delete a schedule",
+    "enable <schedule-id>                      — Enable a disabled schedule",
+    "disable <schedule-id>                     — Disable a schedule without deleting it",
+    "show <schedule-id>                        — Show schedule details",
+    "test <cron-expression>                    — Show next 5 run times for a cron expression"
+  ],
+  "target": "gateway",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "maxSchedulesPerAgent": {
+        "type": "number",
+        "description": "Maximum number of schedules per agent",
+        "default": 100
+      },
+      "defaultTimezone": {
+        "type": "string",
+        "description": "Default timezone for cron expressions",
+        "default": "UTC"
+      },
+      "storagePath": {
+        "type": "string",
+        "description": "Path to store schedule data (defaults to ~/.beige/schedules.json)"
+      }
+    }
+  }
+}

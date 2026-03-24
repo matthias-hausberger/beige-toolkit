@@ -1,0 +1,16 @@
+{
+  "name": "@beige-toolkit/schedule",
+  "version": "1.0.0",
+  "description": "Create and manage scheduled tasks for beige agents",
+  "main": "index.ts",
+  "types": "index.ts",
+  "type": "module",
+  "keywords": [
+    "beige",
+    "schedule",
+    "cron",
+    "automation"
+  ],
+  "author": "beige",
+  "license": "MIT"
+}
