@@ -1,0 +1,42 @@
+{
+  "name": "hash",
+  "version": "1.0.0",
+  "description": "Hashing and encryption tool for generating checksums, HMACs, and encrypted strings",
+  "author": "beige-agent",
+  "main": "index.ts",
+  "commands": [
+    "digest",
+    "hmac",
+    "compare",
+    "file",
+    "uuid",
+    "random",
+    "encode",
+    "decode"
+  ],
+  "config": {
+    "type": "object",
+    "properties": {
+      "defaultAlgorithm": {
+        "type": "string",
+        "description": "Default hash algorithm (sha256, sha512, md5, etc.)",
+        "default": "sha256"
+      },
+      "allowedAlgorithms": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of allowed algorithms (empty = all allowed)"
+      },
+      "maxFileSize": {
+        "type": "number",
+        "description": "Maximum file size for hashing in bytes",
+        "default": 104857600
+      },
+      "maxInputLength": {
+        "type": "number",
+        "description": "Maximum input string length",
+        "default": 1048576
+      }
+    }
+  }
+}

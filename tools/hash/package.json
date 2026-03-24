@@ -1,0 +1,24 @@
+{
+  "name": "@beige-toolkit/hash",
+  "version": "1.0.0",
+  "description": "Hashing and encryption tool for generating checksums, HMACs, and encoded strings",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "test": "bun test __tests__/unit.test.ts"
+  },
+  "keywords": [
+    "hash",
+    "sha256",
+    "sha512",
+    "md5",
+    "hmac",
+    "uuid",
+    "base64",
+    "encoding",
+    "crypto",
+    "beige-toolkit"
+  ],
+  "author": "beige-agent",
+  "license": "MIT"
+}
