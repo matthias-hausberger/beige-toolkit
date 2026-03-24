@@ -115,12 +115,33 @@ export class ProcessManager {
 
   /**
    * Kill all managed processes. Called on gateway shutdown.
+   * Waits up to 5 seconds per process for graceful shutdown.
    */
-  killAll(): void {
-    for (const [name, p] of this.processes) {
-      p.kill();
+  async killAll(): Promise<void> {
+    const killPromises: Promise<void>[] = [];
+
+    for (const [name, managed] of this.processes) {
+      killPromises.push(
+        new Promise<void>((resolve) => {
+          // Set a timeout to force kill if graceful shutdown takes too long
+          const timeout = setTimeout(() => {
+            resolve();
+          }, 5000);
+
+          // Wait for the client to close (process exited)
+          managed.client.once("close", () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+
+          // Start graceful shutdown
+          managed.kill();
+        })
+      );
       this.processes.delete(name);
     }
+
+    await Promise.all(killPromises);
   }
 
   // ── Private ───────────────────────────────────────────────────────────────
@@ -156,11 +177,14 @@ export class ProcessManager {
     const mcpArgs = buildMcpArgs(config, profileDir);
 
     // Spawn via npx
+    // Use detached: true to create a new process group, which allows us to
+    // kill the entire process tree (including Chrome subprocesses) on cleanup.
     const child = spawn(
       "npx",
       ["-y", `chrome-devtools-mcp@${config.version}`, ...mcpArgs],
       {
         stdio: ["pipe", "pipe", "pipe"],
+        detached: true, // Create new process group for clean tree termination
         env: {
           ...process.env,
           // Disable update checks that can produce unexpected stdout noise
@@ -206,7 +230,16 @@ export class ProcessManager {
 
     const killProcess = () => {
       if (idleTimer) clearTimeout(idleTimer);
-      if (!child.killed) child.kill("SIGTERM");
+      if (!child.killed) {
+        try {
+          // Kill entire process group (negative PID) to ensure Chrome
+          // subprocesses are also terminated. Use SIGKILL for reliability
+          // since Chrome may not respond to SIGTERM.
+          process.kill(-child.pid!, "SIGKILL");
+        } catch {
+          // Process already dead or PID not found — ignore
+        }
+      }
     };
 
     const managed: ManagedProcess = {

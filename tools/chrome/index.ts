@@ -97,7 +97,7 @@ export interface ChromeConfig {
 /** Subset of ProcessManager used — injectable for testing. */
 export interface ProcessManagerLike {
   getOrCreate(agentName: string, workspaceDir?: string): Promise<ManagedProcess>;
-  killAll(): void;
+  killAll(): void | Promise<void>;
 }
 
 export interface ChromeContext {
