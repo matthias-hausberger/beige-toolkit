@@ -1,0 +1,207 @@
+{
+  "name": "process",
+  "version": "1.0.0",
+  "description": "List, monitor, and manage processes",
+  "main": "index.ts",
+  "commands": {
+    "list": {
+      "description": "List running processes",
+      "options": {
+        "filter": {
+          "type": "string",
+          "description": "Filter processes by name or command",
+          "required": false
+        },
+        "user": {
+          "type": "string",
+          "description": "Filter by user",
+          "required": false
+        },
+        "name": {
+          "type": "string",
+          "description": "Filter by process name",
+          "required": false
+        },
+        "sort": {
+          "type": "string",
+          "enum": ["pid", "cpu", "mem", "name", "time"],
+          "description": "Sort by field",
+          "required": false
+        },
+        "limit": {
+          "type": "number",
+          "description": "Limit number of results (1-1000)",
+          "required": false
+        },
+        "tree": {
+          "type": "boolean",
+          "description": "Show process tree",
+          "required": false
+        },
+        "format": {
+          "type": "string",
+          "enum": ["json", "table"],
+          "description": "Output format",
+          "required": false
+        }
+      }
+    },
+    "ps": {
+      "description": "Alias for list command",
+      "alias": "list"
+    },
+    "kill": {
+      "description": "Kill a process by PID",
+      "options": {
+        "pid": {
+          "type": "number",
+          "description": "Process ID to kill",
+          "required": true
+        },
+        "signal": {
+          "type": "string",
+          "enum": ["SIGTERM", "SIGKILL", "SIGINT", "SIGSTOP", "SIGCONT"],
+          "description": "Signal to send",
+          "required": false
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Force kill with SIGKILL",
+          "required": false
+        },
+        "children": {
+          "type": "boolean",
+          "description": "Also kill child processes",
+          "required": false
+        }
+      }
+    },
+    "monitor": {
+      "description": "Monitor process resource usage",
+      "options": {
+        "pid": {
+          "type": "number",
+          "description": "Process ID to monitor",
+          "required": false
+        },
+        "interval": {
+          "type": "number",
+          "description": "Sampling interval in seconds (1-60)",
+          "required": false
+        },
+        "duration": {
+          "type": "number",
+          "description": "Duration in seconds (1-300)",
+          "required": false
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["cpu", "mem", "io"]
+          },
+          "description": "Metrics to collect",
+          "required": false
+        }
+      }
+    },
+    "find": {
+      "description": "Find processes by various criteria",
+      "options": {
+        "name": {
+          "type": "string",
+          "description": "Process name to search for",
+          "required": false
+        },
+        "user": {
+          "type": "string",
+          "description": "User to filter by",
+          "required": false
+        },
+        "cmd": {
+          "type": "string",
+          "description": "Command pattern to search for",
+          "required": false
+        },
+        "exact": {
+          "type": "boolean",
+          "description": "Exact match instead of partial",
+          "required": false
+        },
+        "limit": {
+          "type": "number",
+          "description": "Limit number of results (1-1000)",
+          "required": false
+        }
+      }
+    },
+    "tree": {
+      "description": "Show process hierarchy",
+      "options": {
+        "pid": {
+          "type": "number",
+          "description": "Root PID for the tree",
+          "required": false
+        },
+        "user": {
+          "type": "string",
+          "description": "Filter by user",
+          "required": false
+        },
+        "format": {
+          "type": "string",
+          "enum": ["json", "tree"],
+          "description": "Output format",
+          "required": false
+        }
+      }
+    },
+    "top": {
+      "description": "Show top processes by resource usage",
+      "options": {
+        "by": {
+          "type": "string",
+          "enum": ["cpu", "mem"],
+          "description": "Sort by CPU or memory",
+          "required": false
+        },
+        "limit": {
+          "type": "number",
+          "description": "Number of processes to show (1-100)",
+          "required": false
+        },
+        "interval": {
+          "type": "number",
+          "description": "Refresh interval in seconds (1-10)",
+          "required": false
+        },
+        "count": {
+          "type": "number",
+          "description": "Number of updates (1-100)",
+          "required": false
+        }
+      }
+    }
+  },
+  "config": {
+    "type": "object",
+    "properties": {
+      "allowKill": {
+        "type": "boolean",
+        "description": "Allow killing processes (default: true)",
+        "default": true
+      },
+      "denyUsers": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Users whose processes cannot be killed",
+        "default": []
+      },
+      "maxResults": {
+        "type": "number",
+        "description": "Maximum number of results to return",
+        "default": 1000
+      }
+    }
+  }
+}
