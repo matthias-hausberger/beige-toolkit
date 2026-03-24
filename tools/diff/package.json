@@ -1,0 +1,9 @@
+{
+  "name": "diff",
+  "version": "1.0.0",
+  "description": "Compare files and directories to find differences",
+  "main": "index.ts",
+  "scripts": {
+    "test": "deno test __tests__/unit.test.ts --allow-all"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "name": "diff",
+  "version": "1.0.0",
+  "description": "Compare files and directories to find differences",
+  "author": "beige-agent",
+  "main": "index.ts",
+  "commands": [
+    "files",
+    "dirs",
+    "text",
+    "json",
+    "lines"
+  ],
+  "config": {
+    "type": "object",
+    "properties": {
+      "maxFileSize": {
+        "type": "number",
+        "description": "Maximum file size to compare in bytes",
+        "default": 10485760
+      },
+      "contextLines": {
+        "type": "number",
+        "description": "Number of context lines to show around changes",
+        "default": 3
+      },
+      "allowedPaths": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of allowed paths (empty = all allowed)"
+      },
+      "deniedPaths": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of denied paths"
+      }
+    }
+  }
+}
