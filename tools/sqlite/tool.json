@@ -1,0 +1,53 @@
+{
+  "$schema": "../tool.schema.json",
+  "name": "sqlite",
+  "version": "1.0.0",
+  "description": "Query SQLite databases with SQL",
+  "command": "sqlite3",
+  "args": [],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "allowDatabases": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of database paths or glob patterns agents are allowed to access. Use '*' to allow all.",
+        "default": []
+      },
+      "denyDatabases": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of database paths or glob patterns agents are denied access to.",
+        "default": []
+      },
+      "defaultDatabase": {
+        "type": "string",
+        "description": "Default database path to use if not specified in command"
+      },
+      "maxRows": {
+        "type": "number",
+        "description": "Maximum number of rows to return in query results",
+        "default": 1000
+      },
+      "readonly": {
+        "type": "boolean",
+        "description": "When true, only allow SELECT queries",
+        "default": true
+      }
+    }
+  },
+  "examples": [
+    {
+      "command": "/tools/bin/sqlite query --db /path/to/data.db \"SELECT * FROM users LIMIT 10\"",
+      "description": "Query a SQLite database"
+    },
+    {
+      "command": "/tools/bin/sqlite tables --db /path/to/data.db",
+      "description": "List all tables in a database"
+    },
+    {
+      "command": "/tools/bin/sqlite schema --db /path/to/data.db --table users",
+      "description": "Show schema for a specific table"
+    }
+  ]
+}
