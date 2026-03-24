@@ -1,0 +1,44 @@
+{
+  "name": "csv",
+  "version": "1.0.0",
+  "description": "Parse, query, and manipulate CSV/TSV files",
+  "author": "beige-agent",
+  "main": "index.ts",
+  "commands": [
+    "read",
+    "write", 
+    "query",
+    "convert",
+    "stats",
+    "validate",
+    "head",
+    "tail",
+    "select",
+    "filter",
+    "sort"
+  ],
+  "config": {
+    "maxFileSize": {
+      "type": "number",
+      "description": "Maximum file size in bytes to process",
+      "default": 52428800
+    },
+    "maxRows": {
+      "type": "number", 
+      "description": "Maximum number of rows to return",
+      "default": 10000
+    },
+    "pathAllowList": {
+      "type": "array",
+      "items": "string",
+      "description": "List of path patterns to allow",
+      "default": []
+    },
+    "pathDenyList": {
+      "type": "array",
+      "items": "string",
+      "description": "List of path patterns to deny",
+      "default": []
+    }
+  }
+}

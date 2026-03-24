@@ -1,0 +1,18 @@
+{
+  "name": "@beige-toolkit/csv",
+  "version": "1.0.0",
+  "description": "Parse, query, and manipulate CSV/TSV files",
+  "main": "index.ts",
+  "scripts": {
+    "test": "node --test __tests__/unit.test.ts"
+  },
+  "keywords": [
+    "csv",
+    "tsv",
+    "data",
+    "query",
+    "convert"
+  ],
+  "author": "beige-agent",
+  "license": "MIT"
+}
