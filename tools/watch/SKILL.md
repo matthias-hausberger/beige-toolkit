@@ -1,113 +1,96 @@
-# File Watcher Tool - Usage Guide
+# File Watcher Tool Usage Guide
 
-Quick reference for using the watch tool in beige agents.
-
-## Common Commands
-
-### Start Watching
+## Quick Start
 
 ```bash
-# Watch a directory for all changes
-watch start --path /workspace/src
+# Start watching a directory
+/tools/bin/watch start --path /workspace/project
 
-# Watch only TypeScript files
-watch start --path /workspace/src --pattern "*.ts"
-
-# Watch for new files only
-watch start --path /workspace/inbox --events '["create"]'
-
-# Run command on change
-watch start --path /workspace/src --command "pnpm test"
-```
-
-### Manage Watchers
-
-```bash
 # List active watchers
-watch list
+/tools/bin/watch list
 
-# Stop a specific watcher
-watch stop --id watch-1
+# View recent changes
+/tools/bin/watch history
+
+# Stop a watcher
+/tools/bin/watch stop --watcherId <id>
 
 # Stop all watchers
-watch clear
+/tools/bin/watch clear
 ```
 
-### View History
+## Common Patterns
+
+### Watch TypeScript files
 
 ```bash
-# Recent events
-watch history
-
-# Events for specific watcher
-watch history --id watch-1
-
-# More events
-watch history --limit 50
+/tools/bin/watch start --path /workspace/src --pattern "**/*.ts"
 ```
 
-## Use Cases for Agents
-
-### Monitor Inbox
+### Run tests on changes
 
 ```bash
-# Watch for new tasks
-watch start --path /workspace/inbox --events '["create"]' --name "inbox-monitor"
+/tools/bin/watch start --path /workspace/src --pattern "**/*.ts" \
+  --commandOnEvent "bun test" --debounce 1000
 ```
 
-### Auto-Process Files
+### Monitor logs
 
 ```bash
-# Process new files automatically
-watch start --path /workspace/media/inbound --events '["create"]' \
-  --command "node /workspace/scripts/process-media.js {file}"
+/tools/bin/watch start --path /workspace/logs --pattern "*.log" \
+  --events modify
 ```
 
-### Development Workflow
+### Watch for new files only
 
 ```bash
-# Auto-run tests during development
-watch start --path /workspace/repos/beige-toolkit/tools --pattern "*.ts" \
-  --command "cd /workspace/repos/beige-toolkit && pnpm test"
+/tools/bin/watch start --path /workspace/inbox --events create
 ```
 
-## Tips
+## Command Placeholders
 
-1. **Use names**: Give watchers names for easy identification
-2. **Filter events**: Only watch events you care about
-3. **Use patterns**: Filter files to reduce noise
-4. **Set debounce**: Increase debounce for files that change rapidly
-5. **Check history**: Use `watch history` to see what's been happening
+When using `--commandOnEvent`, these placeholders are replaced:
 
-## Example: Complete Workflow
+| Placeholder | Replaced With |
+|-------------|---------------|
+| `{file}` | Filename (e.g., `index.ts`) |
+| `{path}` | Full path (e.g., `/workspace/src/index.ts`) |
+| `{event}` | Event type (e.g., `modify`) |
+
+## Best Practices
+
+1. **Use patterns** to filter noise (e.g., `--pattern "**/*.ts"`)
+2. **Add debounce** for commands that take time (e.g., `--debounce 1000`)
+3. **Limit events** to what you need (e.g., `--events modify`)
+4. **Clean up** watchers when done (`watch clear`)
+
+## Troubleshooting
+
+### Too many events
+
+Add a more specific pattern or increase debounce:
 
 ```bash
-# 1. Start watching
-watch start --path /workspace/inbox --events '["create"]' --name "inbox"
-
-# 2. Check it's running
-watch list
-
-# 3. When a new file arrives, check history
-watch history --id watch-1
-
-# 4. Stop when done
-watch stop --id watch-1
+/tools/bin/watch start --path /workspace --pattern "src/**/*.ts" --debounce 500
 ```
 
-## Error Handling
+### Commands not running
 
-The tool will fail with clear error messages:
-- `Path does not exist` - The specified path doesn't exist
-- `Path not allowed` - Path is outside allowed directories
-- `Maximum watchers reached` - Stop some watchers first
-- `Watcher not found` - Invalid watcher ID
+Check that the command works standalone first:
 
-## Integration with Agents
+```bash
+# Test the command directly
+bun test
 
-Agents can use the watch tool to:
-- React to new files automatically
-- Monitor log files for errors
-- Trigger builds or tests on code changes
-- Process uploaded media files
-- Watch for configuration changes
+# Then add to watcher
+/tools/bin/watch start --path /workspace --commandOnEvent "bun test"
+```
+
+### Watcher limit reached
+
+Clear unused watchers:
+
+```bash
+/tools/bin/watch list
+/tools/bin/watch clear
+```

@@ -1,63 +1,69 @@
 # File Watcher Tool
 
-Watch files and directories for changes with flexible configuration.
+Monitor files and directories for changes with the File Watcher tool.
 
 ## Overview
 
-The watch tool monitors files and directories for changes, creations, and deletions. It supports:
-- Glob patterns for filtering
-- Event-specific watching
-- Command execution on changes
-- Debouncing to prevent duplicate events
-- Event history tracking
+The File Watcher tool provides file system monitoring capabilities for beige agents. It can:
+- Watch files and directories for create, modify, delete, and rename events
+- Filter events by glob patterns
+- Execute commands when changes are detected
+- Track history of all file changes
 
 ## Installation
 
-```bash
-# Add to your beige-toolkit tools directory
-cp -r tools/watch /path/to/beige-toolkit/tools/
+Add to your beige-toolkit configuration:
+
+```json
+{
+  "tools": {
+    "watch": {
+      "path": "./tools/watch"
+    }
+  }
+}
 ```
 
 ## Commands
 
 ### start
 
-Start watching a file or directory.
+Start watching a path for changes.
 
 ```bash
-watch start --path /workspace/src --pattern "*.ts"
+# Watch a directory
+watch start --path /workspace/project
+
+# Watch with glob pattern
+watch start --path /workspace/project --pattern "**/*.ts"
+
+# Watch for specific events only
+watch start --path /workspace/logs --events modify delete
+
+# Execute command on change
+watch start --path /workspace/data --commandOnEvent "echo '{file} was {event}d'"
+
+# Non-recursive watch
+watch start --path /workspace/config --recursive false
+
+# With debounce (milliseconds)
+watch start --path /workspace/build --debounce 500
 ```
 
 **Parameters:**
+- `path` (required): Path to watch
+- `events`: Array of events to watch (`create`, `modify`, `delete`, `rename`)
+- `pattern`: Glob pattern to filter files
+- `commandOnEvent`: Command to execute on change (supports `{file}`, `{path}`, `{event}` placeholders)
+- `debounce`: Debounce time in milliseconds (default: 100)
+- `recursive`: Watch directories recursively (default: true)
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `path` | string | Yes | Path to file or directory to watch |
-| `events` | array | No | Events to watch: `change`, `create`, `delete` (default: all) |
-| `recursive` | boolean | No | Watch directories recursively (default: true) |
-| `pattern` | string | No | Glob pattern to filter files (e.g., `*.ts`) |
-| `command` | string | No | Command to run on change |
-| `debounce` | number | No | Debounce time in ms (default: 100) |
-| `name` | string | No | Name for this watcher (for reference) |
-
-**Command Placeholders:**
-
-When using `--command`, you can use these placeholders:
-- `{file}` - Path to the changed file
-- `{event}` - Event type (change, create, delete)
-- `{watcher}` - Watcher ID
-
-**Example:**
-
-```bash
-# Watch TypeScript files and run tests on change
-watch start --path /workspace/src --pattern "*.ts" --command "pnpm test"
-
-# Watch for new files only
-watch start --path /workspace/inbox --events '["create"]'
-
-# Watch with name for easy reference
-watch start --path /workspace/logs --name "log-watcher"
+**Returns:**
+```json
+{
+  "success": true,
+  "watcherId": "watch-1234567890-abc123"
+}
 ```
 
 ### stop
@@ -65,14 +71,11 @@ watch start --path /workspace/logs --name "log-watcher"
 Stop a specific watcher.
 
 ```bash
-watch stop --id watch-1
+watch stop --watcherId watch-1234567890-abc123
 ```
 
 **Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `id` | string | Yes | Watcher ID to stop |
+- `watcherId` (required): ID of the watcher to stop
 
 ### list
 
@@ -82,23 +85,19 @@ List all active watchers.
 watch list
 ```
 
-**Output:**
-
+**Returns:**
 ```json
 {
-  "success": true,
   "watchers": [
     {
-      "id": "watch-1",
-      "name": "log-watcher",
-      "path": "/workspace/logs",
-      "events": ["change", "create", "delete"],
+      "id": "watch-1234567890-abc123",
+      "path": "/workspace/project",
+      "events": ["create", "modify", "delete", "rename"],
+      "pattern": "**/*.ts",
       "recursive": true,
-      "startedAt": "2026-03-24T06:30:00Z",
-      "eventCount": 5
+      "startedAt": "2026-03-24T07:00:00.000Z"
     }
-  ],
-  "count": 1
+  ]
 }
 ```
 
@@ -110,117 +109,137 @@ Stop all watchers.
 watch clear
 ```
 
+**Returns:**
+```json
+{
+  "count": 3
+}
+```
+
 ### history
 
 Show recent file change events.
 
 ```bash
-watch history --limit 50
-watch history --id watch-1 --limit 10
+# Last 50 events (default)
+watch history
+
+# Last 100 events
+watch history --limit 100
 ```
 
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `id` | string | No | Filter by watcher ID |
-| `limit` | number | No | Number of events to show (default: 20) |
+**Returns:**
+```json
+{
+  "events": [
+    {
+      "timestamp": "2026-03-24T07:01:23.456Z",
+      "watcherId": "watch-1234567890-abc123",
+      "event": "modify",
+      "path": "/workspace/project/src/index.ts",
+      "file": "index.ts"
+    }
+  ]
+}
+```
 
 ## Configuration
 
-Configure the watch tool in your agent config:
+The tool can be configured with security limits:
 
 ```json
 {
-  "tools": {
-    "watch": {
-      "maxWatchers": 10,
-      "maxHistory": 100,
-      "allowPaths": ["/workspace"],
-      "denyPaths": ["/workspace/secrets"]
-    }
+  "config": {
+    "allowPaths": ["/workspace/**"],
+    "denyPaths": ["/workspace/secrets/**", "**/.env*"],
+    "maxWatchers": 10,
+    "maxHistorySize": 1000,
+    "defaultDebounce": 100
   }
 }
 ```
 
-**Config Options:**
+### Configuration Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
+| `allowPaths` | string[] | all | Glob patterns for paths that can be watched |
+| `denyPaths` | string[] | none | Glob patterns for paths that cannot be watched |
 | `maxWatchers` | number | 10 | Maximum concurrent watchers |
-| `maxHistory` | number | 100 | Maximum events to keep in history |
-| `allowPaths` | string[] | [workspace] | Allowed path patterns |
-| `denyPaths` | string[] | [] | Denied path patterns |
+| `maxHistorySize` | number | 1000 | Maximum events to keep in history |
+| `defaultDebounce` | number | 100 | Default debounce time in ms |
 
 ## Use Cases
 
-### Development
+### Development Workflow
+
+Watch source files and run tests on changes:
 
 ```bash
-# Auto-run tests on file change
-watch start --path src --pattern "*.ts" --command "pnpm test {file}"
-
-# Auto-format on save
-watch start --path src --command "prettier --write {file}"
+watch start --path /workspace/src --pattern "**/*.ts" \
+  --commandOnEvent "bun test" --debounce 1000
 ```
 
-### Monitoring
+### Log Monitoring
+
+Watch log files for new entries:
 
 ```bash
-# Monitor log files
-watch start --path /var/log/app --events '["create"]' --name "log-monitor"
-
-# Watch inbox directory
-watch start --path /workspace/inbox --events '["create"]'
+watch start --path /workspace/logs --pattern "*.log" \
+  --events modify --commandOnEvent "tail -1 {path}"
 ```
 
-### Automation
+### Build Triggers
+
+Watch for file changes and trigger builds:
 
 ```bash
-# Trigger build on source change
-watch start --path src --command "pnpm build"
-
-# Sync files on change
-watch start --path data --command "rsync -av {file} backup/"
+watch start --path /workspace/src --events create modify delete \
+  --commandOnEvent "bun run build" --debounce 2000
 ```
+
+### Data Pipeline
+
+Watch for new data files:
+
+```bash
+watch start --path /workspace/inbox --events create \
+  --commandOnEvent "process-data {path}"
+```
+
+## Security
+
+### Path Restrictions
+
+Use `allowPaths` and `denyPaths` to restrict which paths can be watched:
+
+```json
+{
+  "config": {
+    "allowPaths": ["/workspace/projects/**"],
+    "denyPaths": ["/workspace/projects/secrets/**"]
+  }
+}
+```
+
+### Resource Limits
+
+- `maxWatchers` prevents resource exhaustion
+- `maxHistorySize` limits memory usage
+- Debouncing prevents command flooding
 
 ## Event Types
 
 | Event | Description |
 |-------|-------------|
-| `change` | File content modified |
-| `create` | New file created |
-| `delete` | File deleted |
+| `create` | New file or directory created |
+| `modify` | Existing file modified |
+| `delete` | File or directory deleted |
+| `rename` | File or directory renamed (reported as create/delete) |
 
-## Glob Patterns
+## Notes
 
-The pattern parameter supports basic glob syntax:
-
-| Pattern | Matches |
-|---------|---------|
-| `*.ts` | All .ts files |
-| `src/**/*.ts` | All .ts files in src/ and subdirectories |
-| `test-*.js` | Files starting with test- |
-| `*.{ts,js}` | All .ts and .js files |
-
-## Security
-
-The watch tool has built-in security:
-- Path allow/deny lists prevent unauthorized access
-- Maximum watcher limit prevents resource exhaustion
-- Commands run with a 30-second timeout
-- Only workspace paths are allowed by default
-
-## Implementation Details
-
-- Uses Node.js `fs.watch()` with recursive option
-- Debouncing prevents duplicate events for rapid changes
-- Event history is kept in memory (up to `maxHistory` events)
-- Each watcher gets a unique ID for management
-
-## Limitations
-
-- Recursive watching on Linux requires Node.js 19+
-- Command execution is blocking (use short commands)
-- Large directories may have performance impact
-- Event history is lost on process restart
+- Uses Node.js `fs.watch` under the hood
+- Recursive watching uses the `recursive` option (may not work on all platforms)
+- Debouncing helps handle rapid successive changes
+- Command execution is asynchronous and won't block other events

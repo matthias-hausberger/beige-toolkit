@@ -1,114 +1,84 @@
 {
+  "$schema": "https://matthias-hausberger.github.io/beige-toolkit/schemas/tool.json",
   "name": "watch",
   "version": "1.0.0",
-  "description": "Watch files and directories for changes",
-  "command": "node tools/watch/index.ts",
-  "commands": {
-    "start": {
-      "description": "Start watching a file or directory",
+  "description": "Monitor files and directories for changes",
+  "tools": {
+    "watch": {
+      "description": "Monitor files and directories for changes (create, modify, delete, rename). Can execute commands on change.",
       "parameters": {
         "type": "object",
         "properties": {
+          "command": {
+            "type": "string",
+            "enum": ["start", "stop", "list", "clear", "history"],
+            "description": "The watch command to execute"
+          },
           "path": {
             "type": "string",
-            "description": "Path to file or directory to watch"
+            "description": "Path to watch (for start command)"
+          },
+          "watcherId": {
+            "type": "string",
+            "description": "Watcher ID to stop (for stop command)"
           },
           "events": {
             "type": "array",
             "items": {
               "type": "string",
-              "enum": ["change", "create", "delete"]
+              "enum": ["create", "modify", "delete", "rename"]
             },
             "description": "Events to watch for (default: all)"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern to filter files (e.g., '**/*.ts')"
+          },
+          "commandOnEvent": {
+            "type": "string",
+            "description": "Command to execute when an event occurs. Supports placeholders: {file}, {event}, {path}"
+          },
+          "debounce": {
+            "type": "number",
+            "description": "Debounce time in milliseconds (default: 100)"
           },
           "recursive": {
             "type": "boolean",
             "description": "Watch directories recursively (default: true)"
           },
-          "pattern": {
-            "type": "string",
-            "description": "Glob pattern to filter files (e.g., '*.ts')"
-          },
-          "command": {
-            "type": "string",
-            "description": "Command to run on change (optional)"
-          },
-          "debounce": {
-            "type": "number",
-            "description": "Debounce time in ms (default: 100)"
-          },
-          "name": {
-            "type": "string",
-            "description": "Name for this watcher (for reference)"
-          }
-        },
-        "required": ["path"]
-      }
-    },
-    "stop": {
-      "description": "Stop a watcher",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "Watcher ID to stop"
-          }
-        },
-        "required": ["id"]
-      }
-    },
-    "list": {
-      "description": "List active watchers",
-      "parameters": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    "clear": {
-      "description": "Stop all watchers",
-      "parameters": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    "history": {
-      "description": "Show recent file change events",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "Filter by watcher ID (optional)"
-          },
           "limit": {
             "type": "number",
-            "description": "Number of events to show (default: 20)"
+            "description": "Limit for history command (default: 50)"
           }
-        }
+        },
+        "required": ["command"]
       }
     }
   },
   "config": {
     "type": "object",
     "properties": {
-      "maxWatchers": {
-        "type": "number",
-        "description": "Maximum number of concurrent watchers (default: 10)"
-      },
-      "maxHistory": {
-        "type": "number",
-        "description": "Maximum events to keep in history (default: 100)"
-      },
       "allowPaths": {
         "type": "array",
         "items": { "type": "string" },
-        "description": "Allowed path patterns (default: all in workspace)"
+        "description": "List of path patterns that are allowed to be watched (supports glob patterns)"
       },
       "denyPaths": {
         "type": "array",
         "items": { "type": "string" },
-        "description": "Denied path patterns"
+        "description": "List of path patterns that are denied from watching (supports glob patterns)"
+      },
+      "maxWatchers": {
+        "type": "number",
+        "description": "Maximum number of concurrent watchers (default: 10)"
+      },
+      "maxHistorySize": {
+        "type": "number",
+        "description": "Maximum number of events to keep in history (default: 1000)"
+      },
+      "defaultDebounce": {
+        "type": "number",
+        "description": "Default debounce time in milliseconds (default: 100)"
       }
     }
   }

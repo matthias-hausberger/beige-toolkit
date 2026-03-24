@@ -1,467 +1,346 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
- * File Watcher Tool for Beige Toolkit
+ * File Watcher Tool - Monitor files and directories for changes
  *
- * Watch files and directories for changes with flexible configuration.
- * Supports glob patterns, event filtering, and command execution.
+ * Commands:
+ *   start   - Start watching a path
+ *   stop    - Stop a watcher
+ *   list    - List active watchers
+ *   clear   - Stop all watchers
+ *   history - Show recent file change events
  */
 
-import { watch, type FSWatcher } from "fs";
-import { existsSync, statSync, type Stats } from "fs";
-import { join, relative, isAbsolute, resolve } from "path";
-import { spawn } from "child_process";
+import { watch as nodeWatch, type FSWatcher } from "node:fs";
+import { join, basename } from "node:path";
+import { existsSync } from "node:fs";
 
-// Types
-interface WatcherConfig {
-  maxWatchers?: number;
-  maxHistory?: number;
-  allowPaths?: string[];
-  denyPaths?: string[];
+// Simple glob pattern matcher
+function minimatch(str: string, pattern: string): boolean {
+  // Convert glob pattern to regex
+  const regex = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*/g, "{{DOUBLESTAR}}")
+    .replace(/\*/g, "[^/]*")
+    .replace(/{{DOUBLESTAR}}/g, ".*")
+    .replace(/\?/g, "[^/]");
+  return new RegExp(`^${regex}$`).test(str);
 }
 
-interface WatchOptions {
+// Types
+interface WatchEvent {
+  timestamp: string;
+  watcherId: string;
+  event: "create" | "modify" | "delete" | "rename";
   path: string;
-  events?: ("change" | "create" | "delete")[];
-  recursive?: boolean;
-  pattern?: string;
-  command?: string;
-  debounce?: number;
-  name?: string;
+  file?: string;
 }
 
 interface Watcher {
   id: string;
-  name?: string;
   path: string;
-  events: ("change" | "create" | "delete")[];
+  events: string[];
+  pattern?: string;
+  commandOnEvent?: string;
   recursive: boolean;
-  pattern?: RegExp;
-  command?: string;
-  debounce: number;
+  startedAt: string;
   fsWatcher?: FSWatcher;
-  startedAt: Date;
-  lastEvent?: Date;
-  eventCount: number;
-  debounceTimers: Map<string, NodeJS.Timeout>;
 }
 
-interface FileEvent {
-  watcherId: string;
-  event: "change" | "create" | "delete";
-  path: string;
-  timestamp: Date;
-  commandOutput?: string;
+interface Config {
+  allowPaths?: string[];
+  denyPaths?: string[];
+  maxWatchers?: number;
+  maxHistorySize?: number;
+  defaultDebounce?: number;
 }
 
-interface CommandResult {
-  watcher: Watcher;
-  event: FileEvent;
+interface ToolConfig {
+  config?: Config;
+}
+
+interface ToolInput {
+  command: string;
+  path?: string;
+  watcherId?: string;
+  events?: string[];
+  pattern?: string;
+  commandOnEvent?: string;
+  debounce?: number;
+  recursive?: boolean;
+  limit?: number;
 }
 
 // State
 const watchers = new Map<string, Watcher>();
-const eventHistory: FileEvent[] = [];
-let config: WatcherConfig = {};
-let watcherCounter = 0;
+const history: WatchEvent[] = [];
 
-// Parse CLI arguments
-function parseArgs(): { command: string; params: Record<string, unknown> } {
-  const args = process.argv.slice(2);
+// Generate unique watcher ID
+function generateWatcherId(): string {
+  return `watch-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
 
-  if (args.length === 0) {
-    return { command: "list", params: {} };
-  }
-
-  const command = args[0];
-  const params: Record<string, unknown> = {};
-
-  for (let i = 1; i < args.length; i++) {
-    const arg = args[i];
-    if (arg?.startsWith("--")) {
-      const key = arg.slice(2);
-      const value = args[i + 1];
-      if (value && !value.startsWith("--")) {
-        // Try to parse as JSON, fall back to string
-        try {
-          params[key] = JSON.parse(value);
-        } catch {
-          params[key] = value;
-        }
-        i++;
-      } else {
-        params[key] = true;
-      }
+// Check if path matches any pattern in list
+function matchesPattern(path: string, patterns: string[]): boolean {
+  for (const pattern of patterns) {
+    if (minimatch(path, pattern)) {
+      return true;
     }
   }
-
-  return { command, params };
-}
-
-// Convert glob pattern to regex
-function globToRegex(pattern: string): RegExp {
-  const regex = pattern
-    .replace(/\*\*/g, "<<<DOUBLE_STAR>>>")
-    .replace(/\*/g, "[^/]*")
-    .replace(/<<<DOUBLE_STAR>>>/g, ".*")
-    .replace(/\?/g, "[^/]")
-    .replace(/\./g, "\\.");
-  return new RegExp(`^${regex}$`);
-}
-
-// Check if path matches pattern
-function matchesPattern(filePath: string, pattern?: RegExp): boolean {
-  if (!pattern) return true;
-  return pattern.test(filePath);
+  return false;
 }
 
 // Check if path is allowed
-function isPathAllowed(pathToCheck: string): boolean {
-  const resolved = resolve(pathToCheck);
+function isPathAllowed(path: string, config: Config): { allowed: boolean; reason?: string } {
+  const absolutePath = path.startsWith("/") ? path : join(process.cwd(), path);
 
-  // Check deny list first
-  if (config.denyPaths) {
-    for (const denied of config.denyPaths) {
-      if (resolved.includes(resolve(denied))) {
-        return false;
-      }
+  // Check deny list first (takes precedence)
+  if (config.denyPaths && config.denyPaths.length > 0) {
+    if (matchesPattern(absolutePath, config.denyPaths)) {
+      return { allowed: false, reason: "Path is in deny list" };
     }
   }
 
-  // Check allow list
+  // Check allow list (if configured, path must match)
   if (config.allowPaths && config.allowPaths.length > 0) {
-    for (const allowed of config.allowPaths) {
-      if (resolved.includes(resolve(allowed))) {
-        return true;
-      }
+    if (!matchesPattern(absolutePath, config.allowPaths)) {
+      return { allowed: false, reason: "Path is not in allow list" };
     }
-    return false;
   }
 
-  // Default: allow workspace paths only
-  const workspace = process.cwd();
-  return resolved.startsWith(workspace);
+  // Check if path exists
+  if (!existsSync(absolutePath)) {
+    return { allowed: false, reason: "Path does not exist" };
+  }
+
+  return { allowed: true };
 }
 
-// Execute command on file change
-function executeCommand(
-  watcher: Watcher,
-  event: FileEvent
-): Promise<string | undefined> {
-  return new Promise((resolvePromise) => {
-    if (!watcher.command) {
-      resolvePromise(undefined);
-      return;
-    }
-
-    // Replace placeholders in command
-    let cmd = watcher.command
-      .replace(/\{file\}/g, event.path)
-      .replace(/\{event\}/g, event.event)
-      .replace(/\{watcher\}/g, watcher.id);
-
-    const child = spawn("sh", ["-c", cmd], {
-      cwd: process.cwd(),
-      timeout: 30000,
-    });
-
-    let output = "";
-    child.stdout?.on("data", (data) => {
-      output += data.toString();
-    });
-    child.stderr?.on("data", (data) => {
-      output += data.toString();
-    });
-
-    child.on("close", () => {
-      resolvePromise(output.trim() || undefined);
-    });
-
-    child.on("error", (err) => {
-      resolvePromise(`Error: ${err.message}`);
-    });
-  });
+// Check if file matches pattern
+function fileMatchesPattern(file: string, pattern?: string): boolean {
+  if (!pattern) return true;
+  return minimatch(file, pattern);
 }
 
-// Handle file system event
-async function handleEvent(
-  watcher: Watcher,
-  event: "change" | "create" | "delete",
-  filePath: string
-): Promise<void> {
-  // Check pattern
-  if (!matchesPattern(filePath, watcher.pattern)) {
-    return;
-  }
-
-  // Check if event type is watched
-  if (!watcher.events.includes(event)) {
-    return;
-  }
-
-  // Debounce
-  const key = `${filePath}:${event}`;
-  const existingTimer = watcher.debounceTimers.get(key);
-  if (existingTimer) {
-    clearTimeout(existingTimer);
-  }
-
-  watcher.debounceTimers.set(
-    key,
-    setTimeout(async () => {
-      watcher.debounceTimers.delete(key);
-
-      const fileEvent: FileEvent = {
-        watcherId: watcher.id,
-        event,
-        path: filePath,
-        timestamp: new Date(),
-      };
-
-      // Execute command if specified
-      if (watcher.command) {
-        fileEvent.commandOutput = await executeCommand(watcher, fileEvent);
-      }
-
-      // Update watcher stats
-      watcher.lastEvent = fileEvent.timestamp;
-      watcher.eventCount++;
-
-      // Add to history
-      eventHistory.push(fileEvent);
-      const maxHistory = config.maxHistory || 100;
-      if (eventHistory.length > maxHistory) {
-        eventHistory.shift();
-      }
-
-      // Output event
-      output({
-        type: "event",
-        watcherId: watcher.id,
-        event: fileEvent,
-      });
-    }, watcher.debounce)
-  );
-}
-
-// Start watching
-async function startWatcher(params: WatchOptions): Promise<Watcher> {
-  const { path: watchPath, events, recursive = true, pattern, command, debounce = 100, name } = params;
-
-  // Check max watchers
-  const maxWatchers = config.maxWatchers || 10;
-  if (watchers.size >= maxWatchers) {
-    throw new Error(`Maximum watchers (${maxWatchers}) reached. Stop some watchers first.`);
-  }
-
-  // Validate path
-  if (!existsSync(watchPath)) {
-    throw new Error(`Path does not exist: ${watchPath}`);
-  }
-
-  if (!isPathAllowed(watchPath)) {
-    throw new Error(`Path not allowed: ${watchPath}`);
-  }
-
-  // Create watcher
-  const id = `watch-${++watcherCounter}`;
-  const watcher: Watcher = {
-    id,
-    name,
-    path: resolve(watchPath),
-    events: events || ["change", "create", "delete"],
-    recursive,
-    pattern: pattern ? globToRegex(pattern) : undefined,
-    command,
-    debounce,
-    startedAt: new Date(),
-    eventCount: 0,
-    debounceTimers: new Map(),
+// Execute command with placeholders replaced (async, non-blocking)
+async function executeCommand(command: string, event: WatchEvent): Promise<void> {
+  const replacements: Record<string, string> = {
+    "{file}": event.file || "",
+    "{path}": event.path,
+    "{event}": event.event,
   };
 
-  // Start FS watcher
-  const stats = statSync(watchPath);
-  const isDirectory = stats.isDirectory();
+  let cmd = command;
+  for (const [placeholder, value] of Object.entries(replacements)) {
+    cmd = cmd.replace(new RegExp(placeholder.replace(/[{}]/g, "\\$&"), "g"), value);
+  }
 
-  watcher.fsWatcher = watch(
-    watcher.path,
-    {
-      recursive: isDirectory && recursive,
-      persistent: true,
-    },
-    async (eventType, filename) => {
-      if (!filename) return;
+  try {
+    // Use Bun's shell if available, otherwise fall back to exec
+    const proc = Bun.spawn(cmd.split(" "), { quiet: true });
+    await proc.exited;
+  } catch {
+    // Log but don't fail - commands are best-effort
+    console.error(`Command failed: ${cmd}`);
+  }
+}
 
-      const fullPath = isDirectory ? join(watcher.path, filename) : watcher.path;
-      const relativePath = relative(watcher.path, fullPath);
+// Add event to history
+function addToHistory(event: WatchEvent, config: Config): void {
+  const maxSize = config.maxHistorySize || 1000;
+  history.push(event);
+  if (history.length > maxSize) {
+    history.shift();
+  }
+}
 
-      // Map event type
-      let fsEvent: "change" | "create" | "delete";
-      if (eventType === "rename") {
-        // Check if file exists to determine create vs delete
-        fsEvent = existsSync(fullPath) ? "create" : "delete";
-      } else {
-        fsEvent = "change";
+// Start watching a path
+async function startWatcher(
+  input: ToolInput,
+  config: Config
+): Promise<{ success: boolean; watcherId?: string; error?: string }> {
+  if (!input.path) {
+    return { success: false, error: "Path is required for start command" };
+  }
+
+  // Check watcher limit
+  const maxWatchers = config.maxWatchers || 10;
+  if (watchers.size >= maxWatchers) {
+    return {
+      success: false,
+      error: `Maximum number of watchers (${maxWatchers}) reached`,
+    };
+  }
+
+  // Check path permissions
+  const { allowed, reason } = isPathAllowed(input.path, config);
+  if (!allowed) {
+    return { success: false, error: reason };
+  }
+
+  const absolutePath = input.path.startsWith("/")
+    ? input.path
+    : join(process.cwd(), input.path);
+
+  const events = input.events || ["create", "modify", "delete", "rename"];
+  const recursive = input.recursive !== false;
+  const debounce = input.debounce ?? config.defaultDebounce ?? 100;
+
+  const watcherId = generateWatcherId();
+  const watcher: Watcher = {
+    id: watcherId,
+    path: absolutePath,
+    events,
+    pattern: input.pattern,
+    commandOnEvent: input.commandOnEvent,
+    recursive,
+    startedAt: new Date().toISOString(),
+  };
+
+  // Debounce tracking
+  const lastEvents = new Map<string, number>();
+
+  // Create file system watcher
+  try {
+    const fsWatcher = nodeWatch(
+      absolutePath,
+      { recursive, persistent: false },
+      (eventType, filename) => {
+        if (!filename) return;
+
+        const filePath = join(absolutePath, filename);
+        const file = basename(filePath);
+
+        // Check pattern
+        if (!fileMatchesPattern(file, input.pattern)) {
+          return;
+        }
+
+        // Map event type
+        let event: "create" | "modify" | "delete" | "rename";
+        if (eventType === "rename") {
+          event = existsSync(filePath) ? "create" : "delete";
+        } else {
+          event = "modify";
+        }
+
+        // Check if event type is watched
+        if (!events.includes(event)) {
+          return;
+        }
+
+        // Debounce
+        const key = `${filePath}:${event}`;
+        const now = Date.now();
+        const last = lastEvents.get(key) || 0;
+        if (now - last < debounce) {
+          return;
+        }
+        lastEvents.set(key, now);
+
+        // Create event
+        const watchEvent: WatchEvent = {
+          timestamp: new Date().toISOString(),
+          watcherId,
+          event,
+          path: filePath,
+          file,
+        };
+
+        // Add to history
+        addToHistory(watchEvent, config);
+
+        // Execute command if configured
+        if (input.commandOnEvent) {
+          executeCommand(input.commandOnEvent, watchEvent);
+        }
       }
+    );
 
-      await handleEvent(watcher, fsEvent, relativePath);
-    }
-  );
+    watcher.fsWatcher = fsWatcher;
+    watchers.set(watcherId, watcher);
 
-  watcher.fsWatcher?.on("error", (err) => {
-    output({
-      type: "error",
-      watcherId: id,
-      error: err.message,
-    });
-  });
-
-  watchers.set(id, watcher);
-
-  return watcher;
+    return { success: true, watcherId };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to start watcher",
+    };
+  }
 }
 
-// Stop watcher
-function stopWatcher(id: string): boolean {
-  const watcher = watchers.get(id);
+// Stop a watcher
+function stopWatcher(watcherId: string): { success: boolean; error?: string } {
+  const watcher = watchers.get(watcherId);
   if (!watcher) {
-    return false;
+    return { success: false, error: `Watcher ${watcherId} not found` };
   }
 
-  // Clear debounce timers
-  for (const timer of watcher.debounceTimers.values()) {
-    clearTimeout(timer);
+  if (watcher.fsWatcher) {
+    watcher.fsWatcher.close();
   }
+  watchers.delete(watcherId);
 
-  // Close FS watcher
-  watcher.fsWatcher?.close();
-
-  watchers.delete(id);
-  return true;
+  return { success: true };
 }
 
-// List watchers
-function listWatchers(): Watcher[] {
-  return Array.from(watchers.values());
+// List all watchers
+function listWatchers(): { watchers: Array<Record<string, unknown>> } {
+  const result = [];
+  for (const [id, watcher] of watchers) {
+    result.push({
+      id,
+      path: watcher.path,
+      events: watcher.events,
+      pattern: watcher.pattern,
+      recursive: watcher.recursive,
+      startedAt: watcher.startedAt,
+    });
+  }
+  return { watchers: result };
 }
 
 // Clear all watchers
-function clearWatchers(): number {
+function clearWatchers(): { count: number } {
   const count = watchers.size;
-  for (const id of watchers.keys()) {
-    stopWatcher(id);
-  }
-  return count;
-}
-
-// Get history
-function getHistory(watcherId?: string, limit = 20): FileEvent[] {
-  let events = eventHistory;
-  if (watcherId) {
-    events = events.filter((e) => e.watcherId === watcherId);
-  }
-  return events.slice(-limit);
-}
-
-// Output helper
-function output(data: unknown): void {
-  console.log(JSON.stringify(data, null, 2));
-}
-
-// Main
-async function main(): Promise<void> {
-  // Load config from environment
-  if (process.env.BEIGE_TOOL_CONFIG) {
-    try {
-      config = JSON.parse(process.env.BEIGE_TOOL_CONFIG);
-    } catch {
-      // Ignore parse errors
+  for (const watcher of watchers.values()) {
+    if (watcher.fsWatcher) {
+      watcher.fsWatcher.close();
     }
   }
-
-  const { command, params } = parseArgs();
-
-  try {
-    switch (command) {
-      case "start": {
-        const watcher = await startWatcher(params as WatchOptions);
-        output({
-          success: true,
-          watcher: {
-            id: watcher.id,
-            name: watcher.name,
-            path: watcher.path,
-            events: watcher.events,
-            recursive: watcher.recursive,
-            pattern: params.pattern,
-            command: watcher.command,
-            startedAt: watcher.startedAt,
-          },
-        });
-        break;
-      }
-
-      case "stop": {
-        const id = params.id as string;
-        if (!id) {
-          throw new Error("Missing required parameter: id");
-        }
-        const stopped = stopWatcher(id);
-        output({
-          success: stopped,
-          message: stopped ? `Watcher ${id} stopped` : `Watcher ${id} not found`,
-        });
-        break;
-      }
-
-      case "list": {
-        const list = listWatchers().map((w) => ({
-          id: w.id,
-          name: w.name,
-          path: w.path,
-          events: w.events,
-          recursive: w.recursive,
-          command: w.command,
-          startedAt: w.startedAt,
-          lastEvent: w.lastEvent,
-          eventCount: w.eventCount,
-        }));
-        output({
-          success: true,
-          watchers: list,
-          count: list.length,
-        });
-        break;
-      }
-
-      case "clear": {
-        const count = clearWatchers();
-        output({
-          success: true,
-          message: `Stopped ${count} watcher(s)`,
-        });
-        break;
-      }
-
-      case "history": {
-        const events = getHistory(params.id as string, (params.limit as number) || 20);
-        output({
-          success: true,
-          events,
-          count: events.length,
-        });
-        break;
-      }
-
-      default:
-        throw new Error(`Unknown command: ${command}`);
-    }
-  } catch (error) {
-    output({
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    process.exit(1);
-  }
+  watchers.clear();
+  return { count };
 }
 
-main();
+// Show history
+function showHistory(limit: number = 50): { events: WatchEvent[] } {
+  const events = history.slice(-limit);
+  return { events };
+}
+
+// Main tool function
+export default async function (input: ToolInput, context?: ToolConfig) {
+  const config = context?.config || {};
+
+  switch (input.command) {
+    case "start":
+      return await startWatcher(input, config);
+
+    case "stop":
+      if (!input.watcherId) {
+        return { success: false, error: "watcherId is required for stop command" };
+      }
+      return stopWatcher(input.watcherId);
+
+    case "list":
+      return listWatchers();
+
+    case "clear":
+      return clearWatchers();
+
+    case "history":
+      return showHistory(input.limit);
+
+    default:
+      return { success: false, error: `Unknown command: ${input.command}` };
+  }
+}
