@@ -1,0 +1,19 @@
+{
+  "name": "@beige-toolkit/notify",
+  "version": "1.0.0",
+  "description": "Send push notifications via ntfy.sh",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "keywords": [
+    "beige",
+    "notification",
+    "push",
+    "ntfy",
+    "alert"
+  ],
+  "author": "beige-agent",
+  "license": "MIT"
+}

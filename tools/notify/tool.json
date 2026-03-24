@@ -1,0 +1,101 @@
+{
+  "$schema": "https://beige-agent.org/schemas/tool.json",
+  "name": "notify",
+  "version": "1.0.0",
+  "description": "Send push notifications via ntfy.sh or other notification services",
+  "command": "bun run /tools/packages/notify/index.ts",
+  "examples": [
+    "/tools/bin/notify --message 'Task complete!'",
+    "/tools/bin/notify --message 'Alert!' --priority high --topic my-alerts",
+    "/tools/bin/notify --message 'Check logs' --title 'Warning' --tags warning,logs"
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "defaultTopic": {
+        "type": "string",
+        "description": "Default ntfy.sh topic to send notifications to"
+      },
+      "server": {
+        "type": "string",
+        "description": "Custom ntfy server URL (default: https://ntfy.sh)",
+        "default": "https://ntfy.sh"
+      },
+      "allowTopics": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of allowed topics (if set, only these topics can be used)"
+      },
+      "denyTopics": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of denied topics"
+      },
+      "defaultPriority": {
+        "type": "string",
+        "enum": ["min", "low", "default", "high", "urgent", "5", "4", "3", "2", "1"],
+        "description": "Default priority level for notifications",
+        "default": "default"
+      }
+    }
+  },
+  "arguments": {
+    "type": "object",
+    "properties": {
+      "message": {
+        "type": "string",
+        "description": "The notification message (required)"
+      },
+      "topic": {
+        "type": "string",
+        "description": "Topic to send to (uses defaultTopic from config if not specified)"
+      },
+      "title": {
+        "type": "string",
+        "description": "Notification title"
+      },
+      "priority": {
+        "type": "string",
+        "enum": ["min", "low", "default", "high", "urgent", "5", "4", "3", "2", "1"],
+        "description": "Priority level (min=5, low=4, default=3, high=2, urgent=1)"
+      },
+      "tags": {
+        "type": "string",
+        "description": "Comma-separated list of tags (e.g., 'warning,skull')"
+      },
+      "emoji": {
+        "type": "string",
+        "description": "Emoji for notification (e.g., 'bell')"
+      },
+      "actions": {
+        "type": "string",
+        "description": "JSON string of action buttons (advanced)"
+      },
+      "click": {
+        "type": "string",
+        "description": "URL to open when notification is clicked"
+      },
+      "attach": {
+        "type": "string",
+        "description": "URL of attachment to include"
+      },
+      "delay": {
+        "type": "string",
+        "description": "Delay delivery (e.g., '30min', '2h', 'tomorrow, 10am')"
+      },
+      "server": {
+        "type": "string",
+        "description": "Override ntfy server URL"
+      },
+      "token": {
+        "type": "string",
+        "description": "Access token for protected topics"
+      },
+      "quiet": {
+        "type": "boolean",
+        "description": "Only output the message ID on success"
+      }
+    },
+    "required": ["message"]
+  }
+}
