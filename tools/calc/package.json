@@ -1,0 +1,20 @@
+{
+  "name": "@beige-toolkit/calc",
+  "version": "1.0.0",
+  "description": "Safe mathematical expression calculator with unit conversions",
+  "main": "index.ts",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "calculator",
+    "math",
+    "unit-conversion",
+    "expression-evaluator",
+    "beige-toolkit"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/matthias-hausberger/beige-toolkit.git",
+    "directory": "tools/calc"
+  }
+}

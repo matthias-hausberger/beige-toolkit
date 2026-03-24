@@ -1,0 +1,77 @@
+{
+  "$schema": "../../schemas/tool.json",
+  "name": "calc",
+  "version": "1.0.0",
+  "description": "Safe mathematical expression calculator with unit conversions",
+  "commands": {
+    "eval": {
+      "description": "Evaluate a mathematical expression",
+      "parameters": {
+        "expression": {
+          "type": "string",
+          "description": "Mathematical expression to evaluate",
+          "required": true
+        },
+        "precision": {
+          "type": "number",
+          "description": "Number of decimal places (default: 6)",
+          "required": false
+        }
+      }
+    },
+    "convert": {
+      "description": "Convert between units",
+      "parameters": {
+        "value": {
+          "type": "number",
+          "description": "Value to convert",
+          "required": true
+        },
+        "from": {
+          "type": "string",
+          "description": "Source unit (e.g., 'km', 'lb', 'celsius')",
+          "required": true
+        },
+        "to": {
+          "type": "string",
+          "description": "Target unit (e.g., 'miles', 'kg', 'fahrenheit')",
+          "required": true
+        }
+      }
+    },
+    "units": {
+      "description": "List available units for a category",
+      "parameters": {
+        "category": {
+          "type": "string",
+          "description": "Unit category: length, weight, temperature, volume, time, data",
+          "required": false
+        }
+      }
+    },
+    "functions": {
+      "description": "List available mathematical functions",
+      "parameters": {}
+    }
+  },
+  "config": {
+    "type": "object",
+    "properties": {
+      "maxExpressionLength": {
+        "type": "number",
+        "description": "Maximum expression length (default: 1000)",
+        "default": 1000
+      },
+      "defaultPrecision": {
+        "type": "number",
+        "description": "Default decimal places for results (default: 6)",
+        "default": 6
+      },
+      "allowVariables": {
+        "type": "boolean",
+        "description": "Allow variable definitions (default: false)",
+        "default": false
+      }
+    }
+  }
+}
