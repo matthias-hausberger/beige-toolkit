@@ -1,0 +1,66 @@
+{
+  "$schema": "https://beige-agent.io/schemas/tool.json",
+  "name": "image",
+  "version": "1.0.0",
+  "description": "Image manipulation tool for resize, crop, convert, and more using ImageMagick",
+  "commands": ["resize", "crop", "convert", "rotate", "flip", "flop", "thumbnail", "info", "optimize", "watermark", "blur", "sharpen", "grayscale", "sepia"],
+  "examples": [
+    "image resize input.png --width 800 --height 600 output.png",
+    "image convert input.png output.jpg",
+    "image crop input.png --x 100 --y 100 --width 200 --height 200 output.png",
+    "image thumbnail input.png --width 150 output_thumb.png",
+    "image info input.png",
+    "image optimize input.png --quality 85 output.png",
+    "image rotate input.png --angle 90 output.png",
+    "image grayscale input.png output.png"
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "maxFileSize": {
+        "type": "number",
+        "default": 52428800,
+        "description": "Maximum file size in bytes (default: 50MB)"
+      },
+      "allowedFormats": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "svg"],
+        "description": "Allowed input formats"
+      },
+      "outputFormats": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff"],
+        "description": "Allowed output formats"
+      },
+      "pathAllowList": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "Allowed paths (empty = all allowed)"
+      },
+      "pathDenyList": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "Denied paths"
+      },
+      "defaultQuality": {
+        "type": "number",
+        "default": 85,
+        "description": "Default quality for lossy formats (1-100)"
+      },
+      "maxWidth": {
+        "type": "number",
+        "default": 10000,
+        "description": "Maximum output width in pixels"
+      },
+      "maxHeight": {
+        "type": "number",
+        "default": 10000,
+        "description": "Maximum output height in pixels"
+      }
+    }
+  }
+}

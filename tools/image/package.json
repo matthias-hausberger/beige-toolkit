@@ -1,0 +1,23 @@
+{
+  "name": "@beige-toolkit/image",
+  "version": "1.0.0",
+  "description": "Image manipulation tool for resize, crop, convert, and more using ImageMagick",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "test": "node --test __tests__/unit.test.ts"
+  },
+  "keywords": [
+    "beige-toolkit",
+    "image",
+    "imagemagick",
+    "resize",
+    "crop",
+    "convert"
+  ],
+  "author": "beige-agent",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
