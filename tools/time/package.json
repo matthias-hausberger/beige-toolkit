@@ -1,0 +1,21 @@
+{
+  "name": "@beige-toolkit/time",
+  "version": "1.0.0",
+  "description": "Time and date manipulation tool for calculations, formatting, and conversions",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "test": "bun test __tests__/unit.test.ts"
+  },
+  "keywords": [
+    "time",
+    "date",
+    "datetime",
+    "timezone",
+    "format",
+    "duration",
+    "beige-toolkit"
+  ],
+  "author": "beige-agent",
+  "license": "MIT"
+}

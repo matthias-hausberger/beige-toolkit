@@ -1,0 +1,39 @@
+{
+  "name": "time",
+  "version": "1.0.0",
+  "description": "Time and date manipulation tool for calculations, formatting, and conversions",
+  "author": "beige-agent",
+  "main": "index.ts",
+  "commands": [
+    "now",
+    "format",
+    "parse",
+    "add",
+    "subtract",
+    "diff",
+    "start",
+    "end",
+    "is",
+    "convert"
+  ],
+  "config": {
+    "type": "object",
+    "properties": {
+      "defaultTimezone": {
+        "type": "string",
+        "description": "Default timezone (e.g., UTC, America/New_York)",
+        "default": "UTC"
+      },
+      "defaultFormat": {
+        "type": "string",
+        "description": "Default output format",
+        "default": "ISO"
+      },
+      "allowedTimezones": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of allowed timezones (empty = all allowed)"
+      }
+    }
+  }
+}
