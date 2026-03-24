@@ -1,0 +1,35 @@
+{
+  "name": "text",
+  "version": "1.0.0",
+  "description": "Text processing, transformation, and analysis",
+  "author": "beige-agent",
+  "main": "index.ts",
+  "commands": [
+    "transform",
+    "case",
+    "template",
+    "count",
+    "extract",
+    "replace",
+    "trim",
+    "pad",
+    "wrap",
+    "align",
+    "diff",
+    "sort",
+    "unique",
+    "reverse"
+  ],
+  "config": {
+    "maxInputSize": {
+      "type": "number",
+      "description": "Maximum input size in bytes",
+      "default": 10485760
+    },
+    "defaultEncoding": {
+      "type": "string",
+      "description": "Default text encoding",
+      "default": "utf-8"
+    }
+  }
+}
