@@ -1,0 +1,115 @@
+{
+  "name": "watch",
+  "version": "1.0.0",
+  "description": "Watch files and directories for changes",
+  "command": "node tools/watch/index.ts",
+  "commands": {
+    "start": {
+      "description": "Start watching a file or directory",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to file or directory to watch"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["change", "create", "delete"]
+            },
+            "description": "Events to watch for (default: all)"
+          },
+          "recursive": {
+            "type": "boolean",
+            "description": "Watch directories recursively (default: true)"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern to filter files (e.g., '*.ts')"
+          },
+          "command": {
+            "type": "string",
+            "description": "Command to run on change (optional)"
+          },
+          "debounce": {
+            "type": "number",
+            "description": "Debounce time in ms (default: 100)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name for this watcher (for reference)"
+          }
+        },
+        "required": ["path"]
+      }
+    },
+    "stop": {
+      "description": "Stop a watcher",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Watcher ID to stop"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    "list": {
+      "description": "List active watchers",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "clear": {
+      "description": "Stop all watchers",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "history": {
+      "description": "Show recent file change events",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Filter by watcher ID (optional)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of events to show (default: 20)"
+          }
+        }
+      }
+    }
+  },
+  "config": {
+    "type": "object",
+    "properties": {
+      "maxWatchers": {
+        "type": "number",
+        "description": "Maximum number of concurrent watchers (default: 10)"
+      },
+      "maxHistory": {
+        "type": "number",
+        "description": "Maximum events to keep in history (default: 100)"
+      },
+      "allowPaths": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Allowed path patterns (default: all in workspace)"
+      },
+      "denyPaths": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Denied path patterns"
+      }
+    }
+  }
+}

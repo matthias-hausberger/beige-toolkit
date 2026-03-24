@@ -1,0 +1,13 @@
+{
+  "name": "watch",
+  "version": "1.0.0",
+  "description": "Watch files and directories for changes",
+  "main": "index.ts",
+  "author": "beige-agent",
+  "license": "MIT",
+  "keywords": ["beige", "tool", "watch", "files", "monitor"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/matthias-hausberger/beige-toolkit"
+  }
+}
