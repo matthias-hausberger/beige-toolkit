@@ -213,6 +213,28 @@ export function createPlugin(
           {
             onToolStart,
             channel: "telegram",
+            onAutoCompactionStart: () => {
+              bot.api
+                .sendMessage(chatId, "🗜️ _Auto-compacting context…_", {
+                  parse_mode: "Markdown",
+                  ...(threadId ? { message_thread_id: threadId } : {}),
+                })
+                .catch(() => {});
+            },
+            onAutoCompactionEnd: (result) => {
+              if (result.success && result.tokensBefore) {
+                const beforeK = (result.tokensBefore / 1000).toFixed(1);
+                const note = result.willRetry ? " Retrying your request…" : "";
+                bot.api
+                  .sendMessage(
+                    chatId,
+                    `✅ Context auto-compacted (~${beforeK}k tokens).${note}`,
+                    { ...(threadId ? { message_thread_id: threadId } : {}) }
+                  )
+                  .catch(() => {});
+              }
+              // Silent on failure — the next message will naturally fail/retry
+            },
             onAssistantTurnStart: () => {
               // New LLM turn starting — discard any partial message from the
               // previous turn (which was pre-tool-call chatter, not the final answer).
@@ -254,6 +276,27 @@ export function createPlugin(
         const response = await ctx.prompt(sessionKey, agentName, text, {
           onToolStart,
           channel: "telegram",
+          onAutoCompactionStart: () => {
+            bot.api
+              .sendMessage(chatId, "🗜️ _Auto-compacting context…_", {
+                parse_mode: "Markdown",
+                ...(threadId ? { message_thread_id: threadId } : {}),
+              })
+              .catch(() => {});
+          },
+          onAutoCompactionEnd: (result) => {
+            if (result.success && result.tokensBefore) {
+              const beforeK = (result.tokensBefore / 1000).toFixed(1);
+              const note = result.willRetry ? " Retrying your request…" : "";
+              bot.api
+                .sendMessage(
+                  chatId,
+                  `✅ Context auto-compacted (~${beforeK}k tokens).${note}`,
+                  { ...(threadId ? { message_thread_id: threadId } : {}) }
+                )
+                .catch(() => {});
+            }
+          },
         });
         await sendLongMessageTo(chatId, threadId, response);
       }
