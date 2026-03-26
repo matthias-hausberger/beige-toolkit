@@ -193,10 +193,40 @@ export function createPlugin(
     const verbose = getVerbose(sessionKey);
     const streaming = getStreaming(sessionKey);
 
+    // ── Model & context usage ──────────────────────────────
+    // Read model and usage directly from the session file — model_change entries
+    // are written by pi and are always present; session metadata _model is not.
+    const modelRef = ctx.getSessionModel(sessionKey);
+    const usage = ctx.getSessionUsage(sessionKey);
+
+    let modelLine = "_(no session yet)_";
+    let contextLine = "_(no data yet)_";
+
+    if (modelRef) {
+      const modelInfo = ctx.getModel(modelRef.provider, modelRef.modelId);
+      modelLine = modelInfo
+        ? `\`${modelInfo.name}\``
+        : `\`${modelRef.provider}/${modelRef.modelId}\``;
+
+      if (usage && modelInfo) {
+        const pct = ((usage.inputTokens / modelInfo.contextWindow) * 100).toFixed(1);
+        const usedK = (usage.inputTokens / 1000).toFixed(1);
+        const maxK = (modelInfo.contextWindow / 1000).toFixed(0);
+        const bar = contextBar(usage.inputTokens, modelInfo.contextWindow);
+        contextLine = `${bar} ${usedK}k / ${maxK}k (${pct}%)`;
+      } else if (usage) {
+        // Model known but not in registry (custom/unknown) — show raw token count
+        contextLine = `${usage.inputTokens.toLocaleString()} tokens used`;
+      }
+    }
+
     await grammyCtx.reply(
       `*Session Status*\n\n` +
         `Agent: \`${agentName}\`\n` +
-        `Chat: \`${chatId}${threadId ? ` / Thread: ${threadId}` : ""}\`\n\n` +
+        `Chat: \`${chatId}${threadId ? ` / Thread: ${threadId}` : ""}\`\n` +
+        `Model: ${modelLine}\n\n` +
+        `*Context*\n` +
+        `${contextLine}\n\n` +
         `*Settings*\n` +
         `• Verbose: ${verbose ? "🔊 on" : "🔇 off"}\n` +
         `• Streaming: ${streaming ? "⚡ on" : "📦 off"}`,
@@ -520,6 +550,16 @@ export function createPlugin(
 }
 
 // ── Formatting helpers ───────────────────────────────────────────────────────
+
+/**
+ * Render a compact ASCII progress bar for context window usage.
+ * e.g. "▓▓▓▓▓▓░░░░" for ~60% used.
+ */
+function contextBar(used: number, total: number, width = 10): string {
+  const ratio = Math.min(used / total, 1);
+  const filled = Math.round(ratio * width);
+  return "▓".repeat(filled) + "░".repeat(width - filled);
+}
 
 function formatToolCall(toolName: string, params: Record<string, unknown>): string {
   switch (toolName) {
