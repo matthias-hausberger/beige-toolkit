@@ -280,10 +280,10 @@ describe("buildIdentityEnv", () => {
 // buildAuthEnv — SSH modes
 // ---------------------------------------------------------------------------
 
-describe("buildAuthEnv — agent-ssh mode", () => {
+describe("buildAuthEnv — ssh mode (per-agent defaults)", () => {
   it("builds GIT_SSH_COMMAND from agentDir", () => {
     const { env, cleanup } = buildAuthEnv(
-      { auth: { mode: "agent-ssh" } },
+      { auth: { mode: "ssh" } },
       { agentDir: "/beige/agents/AGENTNAME" }
     );
     expect(env.GIT_SSH_COMMAND).toContain("-i /beige/agents/AGENTNAME/ssh/id_ed25519");
@@ -300,7 +300,7 @@ describe("buildAuthEnv — agent-ssh mode", () => {
 
   it("sets BatchMode and disables password auth", () => {
     const { env, cleanup } = buildAuthEnv(
-      { auth: { mode: "agent-ssh" } },
+      { auth: { mode: "ssh" } },
       { agentDir: "/beige/agents/AGENTNAME" }
     );
     expect(env.GIT_SSH_COMMAND).toContain("BatchMode=yes");
@@ -310,7 +310,7 @@ describe("buildAuthEnv — agent-ssh mode", () => {
 
   it("sets GIT_TERMINAL_PROMPT=0", () => {
     const { env, cleanup } = buildAuthEnv(
-      { auth: { mode: "agent-ssh" } },
+      { auth: { mode: "ssh" } },
       { agentDir: "/beige/agents/AGENTNAME" }
     );
     expect(env.GIT_TERMINAL_PROMPT).toBe("0");
@@ -321,7 +321,7 @@ describe("buildAuthEnv — agent-ssh mode", () => {
     const { env, cleanup } = buildAuthEnv(
       {
         auth: {
-          mode: "agent-ssh",
+          mode: "ssh",
           sshKnownHostsPath: "/custom/known_hosts",
         },
       },
@@ -332,7 +332,7 @@ describe("buildAuthEnv — agent-ssh mode", () => {
   });
 });
 
-describe("buildAuthEnv — explicit ssh mode", () => {
+describe("buildAuthEnv — ssh mode (explicit overrides)", () => {
   it("uses provided sshKeyPath", () => {
     const { env, cleanup } = buildAuthEnv(
       {
@@ -577,7 +577,7 @@ describe("workspace scoping", () => {
 // ---------------------------------------------------------------------------
 
 describe("auth env injection", () => {
-  it("passes GIT_SSH_COMMAND to executor in agent-ssh mode", async () => {
+  it("passes GIT_SSH_COMMAND to executor in ssh mode", async () => {
     const { handler, calls } = makeHandler({}, { stdout: "ok" });
     await handler(["status"], undefined, SESSION);
     expect(calls[0].env.GIT_SSH_COMMAND).toContain("IdentitiesOnly=yes");

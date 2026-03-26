@@ -17,21 +17,16 @@
  *
  * ── Authentication ───────────────────────────────────────────────────────────
  *
- * Three modes, configured via config.auth.mode:
+ * Two modes, configured via config.auth.mode:
  *
- *   "agent-ssh" (default)
- *     Derives key path from sessionContext.agentDir at call time:
- *       <agentDir>/ssh/id_ed25519
- *       <agentDir>/ssh/known_hosts
- *     Each agent gets its own key. No key path in config.json5.
- *     Provision with:
+ *   "ssh" (default)
+ *     Uses <agentDir>/ssh/id_ed25519 and <agentDir>/ssh/known_hosts as
+ *     defaults. Both can be overridden with sshKeyPath / sshKnownHostsPath
+ *     in config — useful for shared deploy keys or non-standard locations.
+ *     Provision the per-agent default with:
  *       ssh-keygen -t ed25519 -C "beige-<name>-agent" \
  *         -f ~/.beige/agents/<name>/ssh/id_ed25519 -N ""
  *       ssh-keyscan github.com > ~/.beige/agents/<name>/ssh/known_hosts
- *
- *   "ssh"
- *     Uses a literal sshKeyPath from config. All agents sharing this tool
- *     config use the same key — useful for read-only shared deploy keys.
  *
  *   "https"
  *     Uses a PAT from config.auth.token. Injects it via a transient
@@ -96,20 +91,22 @@ interface SessionContext {
 
 export interface GitAuthConfig {
   /**
-   * "agent-ssh" — derive key from agentDir/ssh/ (default, recommended).
-   * "ssh"       — use a literal sshKeyPath from config.
-   * "https"     — use a PAT from config.token.
+   * "ssh" (default) — SSH key authentication.
+   *   Falls back to <agentDir>/ssh/id_ed25519 and <agentDir>/ssh/known_hosts
+   *   when sshKeyPath / sshKnownHostsPath are not set in config.
+   * "https" — PAT authentication via GIT_ASKPASS.
    */
-  mode?: "agent-ssh" | "ssh" | "https";
+  mode?: "ssh" | "https";
 
-  /** Absolute path to SSH private key. Only used when mode is "ssh". */
+  /**
+   * Absolute path to SSH private key.
+   * Defaults to <agentDir>/ssh/id_ed25519 when not set.
+   */
   sshKeyPath?: string;
 
   /**
    * Absolute path to known_hosts file.
-   * Used for both "agent-ssh" and "ssh" modes.
-   * "agent-ssh" defaults to agentDir/ssh/known_hosts when absent.
-   * "ssh" defaults to /dev/null (StrictHostKeyChecking=no) when absent — log a warning.
+   * Defaults to <agentDir>/ssh/known_hosts when not set.
    */
   sshKnownHostsPath?: string;
 
@@ -418,7 +415,7 @@ export function buildAuthEnv(
   sessionContext: SessionContext
 ): AuthEnv {
   const auth = config.auth ?? {};
-  const mode = auth.mode ?? "agent-ssh";
+  const mode = auth.mode ?? "ssh";
 
   if (mode === "https") {
     const token = auth.token ?? "";
@@ -444,42 +441,24 @@ export function buildAuthEnv(
     };
   }
 
-  // SSH modes (agent-ssh and ssh)
-  let keyPath: string;
-  let knownHostsPath: string;
-
-  if (mode === "ssh") {
-    keyPath = resolve(auth.sshKeyPath ?? "");
-    knownHostsPath = auth.sshKnownHostsPath
-      ? resolve(auth.sshKnownHostsPath)
-      : "/dev/null";
-
-    if (!auth.sshKeyPath) {
-      console.warn("[git tool] SSH mode: no sshKeyPath configured. Git operations will likely fail.");
-    }
-    if (!auth.sshKnownHostsPath) {
-      console.warn(
-        "[git tool] SSH mode: no sshKnownHostsPath configured. " +
-        "Using /dev/null — StrictHostKeyChecking will reject all hosts. " +
-        "Provide a known_hosts file for production use."
-      );
-    }
-  } else {
-    // "agent-ssh" — derive from agentDir
-    const agentDir = sessionContext.agentDir;
-    if (!agentDir) {
-      console.warn(
-        "[git tool] agent-ssh mode: sessionContext.agentDir is not set. " +
-        "This usually means the tool is being called outside a normal agent session. " +
-        "SSH authentication will fail."
-      );
-    }
-    const sshDir = agentDir ? join(agentDir, "ssh") : "";
-    keyPath = join(sshDir, "id_ed25519");
-    knownHostsPath = auth.sshKnownHostsPath
-      ? resolve(auth.sshKnownHostsPath)
-      : join(sshDir, "known_hosts");
+  // SSH mode — config values override the per-agent defaults derived from agentDir.
+  const agentDir = sessionContext.agentDir;
+  if (!agentDir && (!auth.sshKeyPath || !auth.sshKnownHostsPath)) {
+    console.warn(
+      "[git tool] SSH mode: sessionContext.agentDir is not set and no explicit " +
+      "sshKeyPath/sshKnownHostsPath configured. " +
+      "This usually means the tool is being called outside a normal agent session. " +
+      "SSH authentication will fail."
+    );
   }
+
+  const sshDir = agentDir ? join(agentDir, "ssh") : "";
+  const keyPath = auth.sshKeyPath
+    ? resolve(auth.sshKeyPath)
+    : join(sshDir, "id_ed25519");
+  const knownHostsPath = auth.sshKnownHostsPath
+    ? resolve(auth.sshKnownHostsPath)
+    : join(sshDir, "known_hosts");
 
   return {
     env: {

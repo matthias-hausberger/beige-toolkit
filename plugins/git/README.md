@@ -31,7 +31,7 @@ beige tools install npm:@matthias-hausberger/beige-toolkit
 
 ## Authentication
 
-### Default: per-agent SSH key (`agent-ssh` mode)
+### Default: per-agent SSH key (`ssh` mode)
 
 Generate a dedicated ed25519 key for each agent. Replace `<AGENTNAME>` with the agent's name as defined in `config.json5`:
 
@@ -51,11 +51,11 @@ cat ~/.beige/agents/<AGENTNAME>/ssh/id_ed25519.pub
 # → paste into: GitHub repo → Settings → Deploy keys → Add deploy key
 ```
 
-The tool derives the key path from `sessionContext.agentDir` at call time. No key path appears in `config.json5`.
+No config needed — the tool derives key paths from `sessionContext.agentDir` at call time as defaults.
 
-### Shared SSH key (`ssh` mode)
+### Custom SSH key path
 
-For all agents to share a single deploy key:
+Override the defaults in `config.json5` — useful for shared deploy keys or non-standard locations:
 
 ```json5
 tools: {
@@ -106,9 +106,9 @@ The token is injected via a transient `GIT_ASKPASS` helper — no credential sto
 | `identity.email` | *(git default)* | `GIT_AUTHOR_EMAIL` / `GIT_COMMITTER_EMAIL` |
 | `identity.nameEnv` | — | Gateway env var name whose value is used as author name |
 | `identity.emailEnv` | — | Gateway env var name whose value is used as author email |
-| `auth.mode` | `"agent-ssh"` | `"agent-ssh"` / `"ssh"` / `"https"` |
-| `auth.sshKeyPath` | — | Absolute key path. Only used when `mode` is `"ssh"`. |
-| `auth.sshKnownHostsPath` | `agentDir/ssh/known_hosts` | known_hosts path. Used for `"agent-ssh"` and `"ssh"` modes. |
+| `auth.mode` | `"ssh"` | `"ssh"` / `"https"` |
+| `auth.sshKeyPath` | `agentDir/ssh/id_ed25519` | Absolute key path. Overrides the per-agent default. |
+| `auth.sshKnownHostsPath` | `agentDir/ssh/known_hosts` | Absolute known_hosts path. Overrides the per-agent default. |
 | `auth.tokenEnv` | `"GIT_TOKEN"` | Env var name for HTTPS PAT. Only used when `mode` is `"https"`. |
 
 ### Default allowed subcommands
@@ -147,7 +147,7 @@ tools: {
       allowedCommands: ["clone", "pull", "push", "fetch", "add", "commit",
                         "status", "diff", "log", "checkout", "branch"],
       allowedRemotes: ["github.com/myorg/*"],
-      auth: { mode: "agent-ssh" },
+      auth: { mode: "ssh" },
       identity: { name: "Beige Agent", email: "agent@myorg.com" },
     },
   },

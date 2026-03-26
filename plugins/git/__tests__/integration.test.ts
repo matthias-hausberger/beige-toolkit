@@ -84,7 +84,7 @@ describe("createHandler", () => {
         allowedRemotes: ["github.com/myorg/*"],
         allowForcePush: false,
         identity: { name: "Agent", email: "agent@example.com" },
-        auth: { mode: "agent-ssh" },
+        auth: { mode: "ssh" },
       })
     ).not.toThrow();
   });
@@ -101,7 +101,7 @@ describe("typical git workflow", () => {
       {
         allowedCommands: ["status", "add", "commit", "push"],
         identity: { name: "Beige Agent", email: "beige-agent@example.com" },
-        auth: { mode: "agent-ssh" },
+        auth: { mode: "ssh" },
       },
       { executor }
     );
@@ -170,8 +170,8 @@ describe("per-agent SSH isolation", () => {
     const { executor: exec1, calls: calls1 } = fakeExecutor({ stdout: "ok" });
     const { executor: exec2, calls: calls2 } = fakeExecutor({ stdout: "ok" });
 
-    const handler1 = createHandler({ auth: { mode: "agent-ssh" } }, { executor: exec1 });
-    const handler2 = createHandler({ auth: { mode: "agent-ssh" } }, { executor: exec2 });
+    const handler1 = createHandler({ auth: { mode: "ssh" } }, { executor: exec1 });
+    const handler2 = createHandler({ auth: { mode: "ssh" } }, { executor: exec2 });
 
     const session1 = { ...SESSION, agentName: "AGENTNAME_A", agentDir: "/beige/agents/AGENTNAME_A" };
     const session2 = { ...SESSION, agentName: "AGENTNAME_B", agentDir: "/beige/agents/AGENTNAME_B" };
@@ -187,9 +187,9 @@ describe("per-agent SSH isolation", () => {
     expect(sshCmd1).not.toBe(sshCmd2);
   });
 
-  it("agent-ssh mode never passes SSH_AUTH_SOCK", async () => {
+  it("ssh mode never passes SSH_AUTH_SOCK", async () => {
     const { executor, calls } = fakeExecutor({ stdout: "ok" });
-    const handler = createHandler({ auth: { mode: "agent-ssh" } }, { executor });
+    const handler = createHandler({ auth: { mode: "ssh" } }, { executor });
     await handler(["status"], undefined, SESSION);
     expect(calls[0].env.SSH_AUTH_SOCK).toBeUndefined();
     expect(calls[0].env.SSH_AGENT_PID).toBeUndefined();
