@@ -167,7 +167,12 @@ export function createPlugin(
       }).catch(() => {}); // non-fatal if it fails
 
       if (streaming) {
-        // Streaming mode: create a Telegram message and edit it as deltas arrive
+        // Streaming mode: create a Telegram message and edit it as deltas arrive.
+        //
+        // When the agent makes tool calls, the LLM may emit a brief text turn
+        // before the tools (e.g. "I'll check that..."). onAssistantTurnStart fires
+        // each time a new LLM turn begins — we reset currentMessage and delete the
+        // partial Telegram message so only the FINAL turn's text is shown.
         let currentMessage = "";
         let sentMessageId: number | null = null;
         let lastUpdateTime = 0;
@@ -203,7 +208,22 @@ export function createPlugin(
               // Ignore edit errors — Telegram rejects edits if content unchanged
             }
           },
-          { onToolStart, channel: "telegram" }
+          {
+            onToolStart,
+            channel: "telegram",
+            onAssistantTurnStart: () => {
+              // New LLM turn starting — discard any partial message from the
+              // previous turn (which was pre-tool-call chatter, not the final answer).
+              if (sentMessageId !== null) {
+                bot.api
+                  .deleteMessage(chatId, sentMessageId)
+                  .catch(() => {}); // non-fatal if already gone
+                sentMessageId = null;
+              }
+              currentMessage = "";
+              lastUpdateTime = 0;
+            },
+          }
         );
 
         // Final edit with the complete response
