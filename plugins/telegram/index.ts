@@ -134,6 +134,135 @@ export function createPlugin(
     };
   }
 
+  // ── Concurrency tracking ────────────────────────────────────────────────
+  //
+  // Tracks sessions that are about to start but whose inflightCount hasn't
+  // been incremented yet inside AgentManager — guards the small async window
+  // between "fire and forget" and the count becoming visible via isSessionActive().
+  const pendingSessions = new Set<string>();
+
+  function isActive(sessionKey: string): boolean {
+    return pendingSessions.has(sessionKey) || ctx.isSessionActive(sessionKey);
+  }
+
+  // ── Session runner (detached from grammY handler) ───────────────────────
+  //
+  // Called fire-and-forget from the message handler so grammY is never blocked.
+  // Uses bot.api directly since grammyCtx is not available after the handler returns.
+  async function runSession(
+    chatId: number,
+    threadId: number | undefined,
+    sessionKey: string,
+    agentName: string,
+    text: string
+  ): Promise<void> {
+    const streaming = getStreaming(sessionKey);
+    const verbose = getVerbose(sessionKey);
+    const onToolStart = verbose ? makeToolStartHandler(chatId, threadId) : undefined;
+
+    try {
+      // Typing indicator — immediate feedback
+      await bot.api.sendChatAction(chatId, "typing", {
+        ...(threadId ? { message_thread_id: threadId } : {}),
+      }).catch(() => {}); // non-fatal if it fails
+
+      if (streaming) {
+        // Streaming mode: create a Telegram message and edit it as deltas arrive
+        let currentMessage = "";
+        let sentMessageId: number | null = null;
+        let lastUpdateTime = 0;
+        const UPDATE_INTERVAL_MS = 1000;
+
+        const response = await ctx.promptStreaming(
+          sessionKey,
+          agentName,
+          text,
+          async (delta: string) => {
+            currentMessage += delta;
+
+            const now = Date.now();
+            if (now - lastUpdateTime < UPDATE_INTERVAL_MS) return;
+            lastUpdateTime = now;
+
+            try {
+              if (sentMessageId === null) {
+                const sent = await bot.api.sendMessage(
+                  chatId,
+                  truncateForTelegram(currentMessage),
+                  { ...(threadId ? { message_thread_id: threadId } : {}) }
+                );
+                sentMessageId = sent.message_id;
+              } else {
+                await bot.api.editMessageText(
+                  chatId,
+                  sentMessageId,
+                  truncateForTelegram(currentMessage)
+                );
+              }
+            } catch {
+              // Ignore edit errors — Telegram rejects edits if content unchanged
+            }
+          },
+          { onToolStart, channel: "telegram" }
+        );
+
+        // Final edit with the complete response
+        if (sentMessageId !== null) {
+          try {
+            await bot.api.editMessageText(
+              chatId,
+              sentMessageId,
+              truncateForTelegram(response)
+            );
+          } catch {
+            // Edit failed (e.g. identical content) — send as new message
+            await sendLongMessageTo(chatId, threadId, response);
+          }
+        } else {
+          await sendLongMessageTo(chatId, threadId, response);
+        }
+      } else {
+        // Non-streaming mode: wait for full response then send
+        const response = await ctx.prompt(sessionKey, agentName, text, {
+          onToolStart,
+          channel: "telegram",
+        });
+        await sendLongMessageTo(chatId, threadId, response);
+      }
+    } catch (err) {
+      const errorTag = getErrorTag(err);
+      ctx.log.error(`[${errorTag}] Session error [${sessionKey}]: ${err}`);
+
+      let errorMessage: string;
+      if (isAllModelsExhausted(err)) {
+        errorMessage = formatAllModelsExhaustedError(err);
+      } else {
+        errorMessage = formatChannelError(err, false);
+      }
+
+      await bot.api
+        .sendMessage(chatId, errorMessage, {
+          ...(threadId ? { message_thread_id: threadId } : {}),
+        })
+        .catch(() => {});
+    }
+  }
+
+  // ── Bot-level sendLongMessage (no grammyCtx needed) ─────────────────────
+
+  async function sendLongMessageTo(
+    chatId: number,
+    threadId: number | undefined,
+    text: string
+  ): Promise<void> {
+    const chunks = splitMessage(text || "(empty response)", 4096);
+    for (const chunk of chunks) {
+      await bot.api.sendMessage(chatId, chunk, {
+        ...(threadId ? { message_thread_id: threadId } : {}),
+      });
+    }
+  }
+
   // ── Bot handlers ───────────────────────────────────────────────────────
 
   // Auth middleware
@@ -159,11 +288,15 @@ export function createPlugin(
       "👋 Hello! I'm your Beige agent. Send me a message and I'll help you out.\n\n" +
         "Commands:\n" +
         "/new — Start a new conversation session\n" +
+        "/stop — Abort the current operation immediately\n" +
         "/status — Show current session info and settings\n" +
         "/verbose on|off — Toggle tool-call notifications\n" +
         "/v on|off — Same as /verbose (shorthand)\n" +
         "/streaming on|off — Toggle real-time response streaming\n" +
         "/s on|off — Same as /streaming (shorthand)\n\n" +
+        "Tips:\n" +
+        "• Send a message while the agent is running to steer it mid-task\n" +
+        "• Multiple threads run as independent sessions in parallel\n\n" +
         `Current settings:\n` +
         `• Verbose: ${verbose ? "🔊 on" : "🔇 off"}\n` +
         `• Streaming: ${streaming ? "⚡ on" : "📦 off"}`
@@ -182,6 +315,22 @@ export function createPlugin(
 
     await ctx.newSession(sessionKey, agentName);
     await grammyCtx.reply("🆕 New session started. Previous conversation is saved.");
+  });
+
+  // /stop command — abort the current session operation immediately
+  bot.command("stop", async (grammyCtx) => {
+    const chatId = grammyCtx.chat.id;
+    const threadId = grammyCtx.message?.message_thread_id;
+    const sessionKey = telegramSessionKey(chatId, threadId);
+
+    if (!isActive(sessionKey)) {
+      await grammyCtx.reply("No active operation to stop.");
+      return;
+    }
+
+    await ctx.abortSession(sessionKey);
+    await grammyCtx.reply("⛔ Stopped.");
+    ctx.log.info(`Session aborted by user: ${sessionKey}`);
   });
 
   // /status command
@@ -299,6 +448,10 @@ export function createPlugin(
   bot.command("s", handleStreamingCommand);
 
   // Text messages — the main handler
+  //
+  // The handler returns immediately so grammY is never blocked. The actual
+  // prompt runs inside runSession() (fire-and-forget). If a session is already
+  // running for this chat/thread, the new message steers it instead.
   bot.on("message:text", async (grammyCtx) => {
     const text = grammyCtx.message.text;
     const chatId = grammyCtx.chat.id;
@@ -307,7 +460,6 @@ export function createPlugin(
 
     const sessionKey = telegramSessionKey(chatId, threadId);
     const agentName = resolveAgent(userId);
-    const streaming = getStreaming(sessionKey);
 
     ctx.log.info(
       `User ${userId} → agent '${agentName}' ` +
@@ -315,85 +467,23 @@ export function createPlugin(
         `${text.slice(0, 80)}${text.length > 80 ? "..." : ""}`
     );
 
-    try {
-      await grammyCtx.replyWithChatAction("typing");
-
-      const verbose = getVerbose(sessionKey);
-      const onToolStart = verbose ? makeToolStartHandler(chatId, threadId) : undefined;
-
-      if (streaming) {
-        // Streaming mode: update message in real-time
-        let currentMessage = "";
-        let sentMessage: any = null;
-        let lastUpdateTime = 0;
-        const UPDATE_INTERVAL_MS = 1000;
-
-        const response = await ctx.promptStreaming(
-          sessionKey,
-          agentName,
-          text,
-          async (delta: string) => {
-            currentMessage += delta;
-
-            const now = Date.now();
-            if (now - lastUpdateTime < UPDATE_INTERVAL_MS) return;
-            lastUpdateTime = now;
-
-            try {
-              if (!sentMessage) {
-                sentMessage = await grammyCtx.reply(truncateForTelegram(currentMessage), {
-                  parse_mode: undefined,
-                  ...(threadId ? { message_thread_id: threadId } : {}),
-                });
-              } else {
-                await grammyCtx.api.editMessageText(
-                  grammyCtx.chat.id,
-                  sentMessage.message_id,
-                  truncateForTelegram(currentMessage)
-                );
-              }
-            } catch {
-              // Ignore edit errors (Telegram may reject if content unchanged)
-            }
-          },
-          { onToolStart, channel: "telegram" }
-        );
-
-        // Send final message
-        if (sentMessage) {
-          try {
-            await grammyCtx.api.editMessageText(
-              grammyCtx.chat.id,
-              sentMessage.message_id,
-              truncateForTelegram(response)
-            );
-          } catch {
-            await sendLongMessage(grammyCtx, response, threadId);
-          }
-        } else {
-          await sendLongMessage(grammyCtx, response, threadId);
-        }
-      } else {
-        // Non-streaming mode: send full response when complete
-        const response = await ctx.prompt(sessionKey, agentName, text, {
-          onToolStart,
-          channel: "telegram",
-        });
-        await sendLongMessage(grammyCtx, response, threadId);
-      }
-    } catch (err) {
-      const errorTag = getErrorTag(err);
-      ctx.log.error(`[${errorTag}] Error: ${err}`);
-
-      let errorMessage: string;
-      if (isAllModelsExhausted(err)) {
-        errorMessage = formatAllModelsExhaustedError(err);
-      } else {
-        errorMessage = formatChannelError(err, false);
-      }
-
-      await grammyCtx.reply(errorMessage);
+    // If a session is already running, steer it with the new message
+    if (isActive(sessionKey)) {
+      ctx.log.info(`Steering active session: ${sessionKey}`);
+      await ctx.steerSession(sessionKey, text);
+      return;
     }
+
+    // Mark as pending immediately — before any await — so the next incoming
+    // message sees this session as active even before inflightCount is set.
+    pendingSessions.add(sessionKey);
+
+    // Give immediate typing feedback, then fire-and-forget the session
+    await grammyCtx.replyWithChatAction("typing").catch(() => {});
+
+    runSession(chatId, threadId, sessionKey, agentName, text)
+      .catch((err) => ctx.log.error(`Unhandled session error [${sessionKey}]: ${err}`))
+      .finally(() => pendingSessions.delete(sessionKey));
   });
 
   // ── Channel adapter ────────────────────────────────────────────────────
@@ -519,6 +609,7 @@ export function createPlugin(
         await bot.api.setMyCommands([
           { command: "start", description: "Show welcome message and available commands" },
           { command: "new", description: "Start a new conversation session" },
+          { command: "stop", description: "Abort the current operation immediately" },
           { command: "status", description: "Show current session info and settings" },
           { command: "verbose", description: "Toggle tool-call notifications: /verbose on|off" },
           { command: "v", description: "Shorthand for /verbose: /v on|off" },
