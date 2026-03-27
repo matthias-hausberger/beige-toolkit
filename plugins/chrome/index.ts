@@ -576,9 +576,9 @@ export function createPlugin(
       });
     },
 
-    // Called by the gateway when the plugin is being torn down.
-    // Ensures all Chrome processes are killed even before OS signals fire.
-    destroy(): void {
+    // Called by the gateway on shutdown.
+    // Ensures all Chrome processes are killed cleanly.
+    async stop(): Promise<void> {
       pm.killAll();
     },
   };
