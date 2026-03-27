@@ -354,6 +354,35 @@ describe("tool invocation", () => {
     expect(result.output).toContain("exited unexpectedly");
     expect(result.output).toContain("restarted on your next call");
   });
+
+  it("kills the managed process and returns a clear message when a tool call times out", async () => {
+    let killed = false;
+    const pm: ProcessManagerLike = {
+      async getOrCreate() {
+        return {
+          client: {
+            get isClosed() { return false; },
+            async listTools() { return []; },
+            async callTool() {
+              throw new Error("MCP request 'tools/call' timed out after 5000ms");
+            },
+            async initialize() {},
+          },
+          touch() {},
+          kill() { killed = true; },
+        };
+      },
+      killAll() {},
+    };
+    const handler = createHandler({ timeout: 5 }, { processManager: pm });
+    const result = await handler(["navigate_page", "--url", "https://example.com"], undefined, makeSession("coder"));
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("timed out");
+    expect(result.output).toContain("terminated");
+    expect(result.output).toContain("restarted automatically");
+    // The process must have been explicitly killed so Chrome doesn't linger
+    expect(killed).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

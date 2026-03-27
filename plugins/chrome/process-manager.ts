@@ -8,6 +8,22 @@
  *   - NOT silently restarted on crash — callers receive an error and the
  *     process is cleaned up so the next call triggers a fresh spawn.
  *
+ * ── Process lifecycle & cleanup ──────────────────────────────────────────────
+ *
+ * Each child process is spawned with `detached: true` so it becomes the leader
+ * of a new OS process group.  This means `process.kill(-pid, signal)` sends
+ * the signal to the *entire* tree (npx → chrome-devtools-mcp → Chrome), not
+ * just the immediate child.
+ *
+ * Kill escalation: SIGTERM is sent first; if the process group has not exited
+ * within KILL_ESCALATION_MS milliseconds it is sent SIGKILL.
+ *
+ * Gateway shutdown: the ProcessManager registers once-handlers for SIGTERM,
+ * SIGINT and the Node.js "exit" event so that killAll() is always called when
+ * the gateway process stops.  Handlers are unregistered when killAll() runs to
+ * avoid accumulating listeners across multiple ProcessManager instances (only
+ * relevant in tests).
+ *
  * ── Download directory ──────────────────────────────────────────────────────
  *
  * To route Chrome file-downloads into the agent's workspace, the manager
@@ -29,6 +45,17 @@ import { mkdirSync, readFileSync, existsSync, writeFileSync, rmSync } from "fs";
 import { homedir } from "os";
 import { resolve, join } from "path";
 import { McpClient, type McpClientLike } from "./mcp-client.ts";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * How long to wait after SIGTERM before escalating to SIGKILL.
+ * Chrome sometimes hangs on SIGTERM (e.g. during a GPU flush), so we give it
+ * a short grace period before forcing the issue.
+ */
+const KILL_ESCALATION_MS = 5_000;
 
 // ---------------------------------------------------------------------------
 // Browser detection
@@ -124,8 +151,41 @@ export interface ManagedProcess {
   client: McpClientLike;
   /** Resets the idle timer. Called on every successful tool invocation. */
   touch(): void;
-  /** Kill the process immediately. */
+  /** Kill the process immediately (SIGTERM → SIGKILL escalation). */
   kill(): void;
+}
+
+// ---------------------------------------------------------------------------
+// Process group kill helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Terminate an entire OS process group.
+ *
+ * When the child was spawned with `detached: true` it becomes the process
+ * group leader.  Sending a signal to `-pid` (negative PID) delivers it to
+ * every process in that group — including grandchildren like Chrome itself.
+ *
+ * Falls back to a plain `child.kill(signal)` on platforms where process
+ * groups are not supported (Windows) or when the PID is no longer available.
+ */
+function killProcessGroup(
+  child: ReturnType<typeof spawn>,
+  signal: NodeJS.Signals
+): void {
+  try {
+    if (child.pid != null) {
+      process.kill(-child.pid, signal);
+      return;
+    }
+  } catch {
+    // Process group already gone — try the direct child as a last resort
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // Already dead
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -136,8 +196,23 @@ export class ProcessManager {
   private processes = new Map<string, ManagedProcess>();
   private config: ProcessConfig;
 
+  // Bound shutdown callbacks stored so we can remove them in killAll().
+  private onSigterm: () => void;
+  private onSigint:  () => void;
+  private onExit:    () => void;
+
   constructor(config: ProcessConfig) {
     this.config = config;
+
+    // Wire gateway shutdown → kill all managed Chrome processes.
+    // Using once() so repeated invocations (e.g. SIGTERM then exit) are safe.
+    this.onSigterm = () => this.killAll();
+    this.onSigint  = () => this.killAll();
+    this.onExit    = () => this.killAll();
+
+    process.once("SIGTERM", this.onSigterm);
+    process.once("SIGINT",  this.onSigint);
+    process.once("exit",    this.onExit);
   }
 
   /**
@@ -178,8 +253,17 @@ export class ProcessManager {
 
   /**
    * Kill all managed processes. Called on gateway shutdown.
+   *
+   * Also removes the OS signal listeners registered in the constructor so
+   * this object can be garbage-collected cleanly (important in tests where
+   * many ProcessManager instances may be created).
    */
   killAll(): void {
+    // Deregister shutdown listeners first to avoid double-invocation
+    process.off("SIGTERM", this.onSigterm);
+    process.off("SIGINT",  this.onSigint);
+    process.off("exit",    this.onExit);
+
     for (const [name, p] of this.processes) {
       p.kill();
       this.processes.delete(name);
@@ -230,13 +314,23 @@ export class ProcessManager {
       spawnEnv.DISPLAY = config.display;
     }
 
-    // Spawn via npx
+    // Spawn via npx.
+    //
+    // detached: true — places the child in its own OS process group.
+    // This is the key to reliable cleanup: we can send a signal to the
+    // *entire* process group (npx → chrome-devtools-mcp → Chrome) by using
+    // process.kill(-pid, signal).  Without this, killing the npx wrapper
+    // would leave chrome-devtools-mcp and Chrome as orphan processes.
+    //
+    // We do NOT call child.unref() — we want the child to hold the event
+    // loop open and we want Node.js to track it.
     const child = spawn(
       "npx",
       ["-y", `chrome-devtools-mcp@${config.version}`, ...mcpArgs],
       {
         stdio: ["pipe", "pipe", "pipe"],
         env: spawnEnv,
+        detached: true,
       }
     );
 
@@ -256,7 +350,7 @@ export class ProcessManager {
     try {
       await client.initialize();
     } catch (err) {
-      child.kill("SIGKILL");
+      killProcessGroup(child, "SIGKILL");
       throw new Error(
         `Failed to initialize chrome-devtools-mcp for agent '${agentName}': ${
           err instanceof Error ? err.message : String(err)
@@ -266,6 +360,13 @@ export class ProcessManager {
 
     // Idle timer — auto-kill after inactivity
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    // SIGTERM → SIGKILL escalation timer
+    let escalationTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const clearTimers = () => {
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = undefined; }
+      if (escalationTimer) { clearTimeout(escalationTimer); escalationTimer = undefined; }
+    };
 
     const resetIdle = () => {
       if (idleTimer) clearTimeout(idleTimer);
@@ -276,8 +377,16 @@ export class ProcessManager {
     };
 
     const killProcess = () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      if (!child.killed) child.kill("SIGTERM");
+      clearTimers();
+
+      // Send SIGTERM to the entire process group first.
+      killProcessGroup(child, "SIGTERM");
+
+      // If the process group is still alive after KILL_ESCALATION_MS, force it.
+      escalationTimer = setTimeout(() => {
+        escalationTimer = undefined;
+        killProcessGroup(child, "SIGKILL");
+      }, KILL_ESCALATION_MS);
     };
 
     const managed: ManagedProcess = {
@@ -289,9 +398,9 @@ export class ProcessManager {
     // Start the idle clock immediately after spawn
     resetIdle();
 
-    // When the child exits unexpectedly, remove from map (next call will respawn)
+    // When the child exits (for any reason), clear timers and remove from map.
     child.once("exit", () => {
-      if (idleTimer) clearTimeout(idleTimer);
+      clearTimers();
       this.processes.delete(agentName);
     });
 

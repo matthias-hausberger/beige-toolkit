@@ -481,6 +481,22 @@ export function createHandler(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
 
+      // If the tool call timed out the MCP request is rejected, but the
+      // chrome-devtools-mcp process (and Chrome) may still be executing the
+      // command.  Kill the process now so it cannot linger indefinitely.
+      // The next call will transparently respawn a fresh instance.
+      if (msg.includes("timed out")) {
+        managed.kill();
+        return {
+          output: [
+            `Error: tool '${parsed.toolName}' timed out after ${timeoutMs / 1000}s.`,
+            "The browser process has been terminated.",
+            "It will be restarted automatically on your next call.",
+          ].join("\n"),
+          exitCode: 1,
+        };
+      }
+
       // Check if the process died mid-call
       if (managed.client.isClosed) {
         return {
@@ -519,7 +535,25 @@ export function createPlugin(
 ): PluginInstance {
   const manifestPath = joinPath(import.meta.dirname!, "plugin.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-  const handler = createHandler(config);
+
+  // Keep a reference to the real ProcessManager so we can shut it down cleanly
+  // when the plugin is torn down (e.g. gateway reload / graceful shutdown).
+  const pm = new ProcessManager({
+    beigeDataDir: resolveBeigeDataDir(),
+    version: (config.version as string) ?? "latest",
+    slim: (config.slim as boolean) ?? false,
+    headless: (config.headless as boolean) ?? false,
+    viewport: config.viewport as string | undefined,
+    proxyServer: config.proxyServer as string | undefined,
+    acceptInsecureCerts: (config.acceptInsecureCerts as boolean) ?? false,
+    noUsageStatistics: (config.noUsageStatistics as boolean) ?? true,
+    idleTimeoutMs: ((config.idleTimeoutMinutes as number) ?? 30) * 60 * 1000,
+    executablePath: config.executablePath as string | undefined,
+    fallbackToChromium: (config.fallbackToChromium as boolean) ?? true,
+    display: config.display as string | undefined,
+  });
+
+  const handler = createHandler(config, { processManager: pm });
 
   return {
     register(reg: PluginRegistrar): void {
@@ -529,6 +563,12 @@ export function createPlugin(
         commands: manifest.commands,
         handler,
       });
+    },
+
+    // Called by the gateway when the plugin is being torn down.
+    // Ensures all Chrome processes are killed even before OS signals fire.
+    destroy(): void {
+      pm.killAll();
     },
   };
 }
