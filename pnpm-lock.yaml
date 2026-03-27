@@ -7,13 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      cron-parser:
-        specifier: ^5.5.0
-        version: 5.5.0
-      grammy:
-        specifier: ^1.35.0
-        version: 1.41.1
     devDependencies:
       '@matthias-hausberger/beige':
         specifier: 1.0.0-beta3
@@ -21,6 +14,12 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      cron-parser:
+        specifier: ^5.5.0
+        version: 5.5.0
+      grammy:
+        specifier: ^1.35.0
+        version: 1.41.1
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
