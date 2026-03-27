@@ -1,0 +1,183 @@
+# Git Tool
+
+Run `git` commands against the agent's workspace on the gateway host. Authentication uses a per-agent ed25519 SSH key stored at `~/.beige/agents/<AGENTNAME>/ssh/id_ed25519` — the gateway operator's own SSH keys are never used, even as a fallback.
+
+## How it works
+
+The agent's `/workspace` inside Docker is a bind mount of `~/.beige/agents/<AGENTNAME>/workspace/` on the gateway host. Both sides see the same files. The git tool runs `git` on the gateway host against that path, meaning:
+
+- The SSH key lives at `~/.beige/agents/<AGENTNAME>/ssh/id_ed25519` — a path that is **never mounted into the container**
+- The agent cannot read the key via `exec cat` or any other mechanism
+- Each agent has its own key, so agents are isolated from each other
+
+## Installation
+
+```bash
+beige tools install github:matthias-hausberger/beige-toolkit/tools/git
+```
+
+Or install all tools:
+
+```bash
+beige tools install npm:@matthias-hausberger/beige-toolkit
+```
+
+## Prerequisites
+
+| Requirement | Details |
+|---|---|
+| `git` | Must be installed on the **gateway host** |
+| SSH key | Generate per-agent key — see [Authentication](#authentication) |
+
+## Authentication
+
+### Default: per-agent SSH key (`ssh` mode)
+
+Generate a dedicated ed25519 key for each agent. Replace `<AGENTNAME>` with the agent's name as defined in `config.json5`:
+
+```bash
+# Create the ssh directory
+mkdir -p ~/.beige/agents/<AGENTNAME>/ssh
+
+# Generate key — no passphrase (batch operation, no interactive prompt)
+ssh-keygen -t ed25519 -C "beige-<AGENTNAME>-agent" \
+  -f ~/.beige/agents/<AGENTNAME>/ssh/id_ed25519 -N ""
+
+# Capture known hosts for github.com
+ssh-keyscan github.com > ~/.beige/agents/<AGENTNAME>/ssh/known_hosts
+
+# Add the public key to GitHub as a deploy key
+cat ~/.beige/agents/<AGENTNAME>/ssh/id_ed25519.pub
+# → paste into: GitHub repo → Settings → Deploy keys → Add deploy key
+```
+
+No config needed — the tool derives key paths from `sessionContext.agentDir` at call time as defaults.
+
+### Custom SSH key path
+
+Override the defaults in `config.json5` — useful for shared deploy keys or non-standard locations:
+
+```json5
+tools: {
+  git: {
+    config: {
+      auth: {
+        mode: "ssh",
+        sshKeyPath: "/etc/beige-keys/shared-deploy-key",
+        sshKnownHostsPath: "/etc/beige-keys/known_hosts",
+      },
+    },
+  },
+},
+```
+
+### HTTPS with a Personal Access Token (`https` mode)
+
+Use `${ENV_VAR}` syntax so the token is read from the environment at startup — never hardcoded in `config.json5`:
+
+```bash
+export BEIGE_GIT_TOKEN="ghp_xxxxxxxxxxxx"
+```
+
+```json5
+tools: {
+  git: {
+    config: {
+      auth: {
+        mode: "https",
+        token: "${BEIGE_GIT_TOKEN}",
+        user: "x-access-token",    // optional, this is the default
+      },
+    },
+  },
+},
+```
+
+The token is injected via a transient `GIT_ASKPASS` helper — no credential store is touched.
+
+## Configuration
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `allowedCommands` | safe default set | Whitelist of git subcommands. `config` is always blocked regardless. |
+| `deniedCommands` | *(none)* | Blacklist. Deny beats allow. |
+| `allowedRemotes` | *(none — all allowed)* | Glob patterns matched against remote URLs. Restricts push/fetch/pull/clone targets. |
+| `allowForcePush` | `false` | Allow `--force` and `--force-with-lease` on push. |
+| `identity.name` | *(git default)* | `GIT_AUTHOR_NAME` / `GIT_COMMITTER_NAME` |
+| `identity.email` | *(git default)* | `GIT_AUTHOR_EMAIL` / `GIT_COMMITTER_EMAIL` |
+| `identity.nameEnv` | — | Gateway env var name whose value is used as author name |
+| `identity.emailEnv` | — | Gateway env var name whose value is used as author email |
+| `auth.mode` | `"ssh"` | `"ssh"` / `"https"` |
+| `auth.sshKeyPath` | `agentDir/ssh/id_ed25519` | Absolute key path. Overrides the per-agent default. |
+| `auth.sshKnownHostsPath` | `agentDir/ssh/known_hosts` | Absolute known_hosts path. Overrides the per-agent default. |
+| `auth.token` | — | HTTPS PAT. Use `${ENV_VAR}` syntax for env injection. Only used when `mode` is `"https"`. |
+| `auth.user` | `"x-access-token"` | HTTPS username sent alongside the token. Only used when `mode` is `"https"`. |
+
+### Default allowed subcommands
+
+`clone`, `pull`, `push`, `fetch`, `add`, `commit`, `status`, `diff`, `log`, `show`, `checkout`, `branch`, `merge`, `rebase`, `stash`, `remote`, `tag`, `mv`, `rm`, `restore`, `reset`, `rev-parse`, `ls-files`, `shortlog`
+
+### Permanently blocked (cannot be enabled by any config)
+
+| Command | Reason |
+|---|---|
+| `git config` | Could override SSH command, identity, or credential helper |
+| `git filter-branch` | History rewriting |
+| `git fast-import` | History rewriting |
+| `git archive` | `--remote` flag allows arbitrary remote reads |
+
+## Config Examples
+
+**Read-only clone agent:**
+```json5
+tools: {
+  git: {
+    config: {
+      allowedCommands: ["clone", "fetch", "pull", "status", "log", "diff"],
+      allowedRemotes: ["github.com/myorg/*"],
+      identity: { name: "Beige Agent", email: "agent@myorg.com" },
+    },
+  },
+},
+```
+
+**Full commit + push with per-agent SSH keys:**
+```json5
+tools: {
+  git: {
+    config: {
+      allowedCommands: ["clone", "pull", "push", "fetch", "add", "commit",
+                        "status", "diff", "log", "checkout", "branch"],
+      allowedRemotes: ["github.com/myorg/*"],
+      auth: { mode: "ssh" },
+      identity: { name: "Beige Agent", email: "agent@myorg.com" },
+    },
+  },
+},
+agents: {
+  // Key at: ~/.beige/agents/<AGENTNAME>/ssh/id_ed25519
+  writer: {
+    tools: ["git"],
+  },
+  // Reviewer can only read, not push — override via pluginConfigs
+  reader: {
+    tools: ["git"],
+    pluginConfigs: {
+      git: {
+        allowedCommands: ["fetch", "pull", "status", "log", "diff", "checkout"],
+      },
+    },
+  },
+},
+```
+
+## Security
+
+| Risk | Mitigation |
+|---|---|
+| Gateway operator's `~/.ssh/` keys used | `IdentitiesOnly=yes` in every SSH invocation |
+| `ssh-agent` keys used as fallback | `IdentitiesOnly=yes` + `SSH_AUTH_SOCK` not passed to git subprocess |
+| Agent reads SSH key via `exec cat` | `agentDir/ssh/` is never mounted into the container |
+| Agent overrides SSH command via `git config` | `git config` is permanently blocked |
+| Agent pushes to arbitrary remotes | `allowedRemotes` glob list checked before every network operation |
+| Force-push overwrites history | Blocked by default; requires explicit `allowForcePush: true` |

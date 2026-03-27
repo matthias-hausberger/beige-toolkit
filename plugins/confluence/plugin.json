@@ -1,0 +1,76 @@
+{
+  "name": "confluence",
+  "description": "Interact with Atlassian Confluence via the confluence-cli binary installed on the gateway host. Assumes the host is already authenticated. Supports reading pages, searching, listing spaces and children, creating/updating/deleting pages, managing attachments, comments, content properties, exporting pages, and profile management. Access is controlled at two independent layers: (1) command-level allow/deny lists, and (2) space-level allow lists for reads and writes \u2014 both layers are optional and default to fully open.",
+  "commands": [
+    "read <pageId|url> [--format text|html|markdown]                                      \u2014 read page content",
+    "info <pageId|url>                                                                     \u2014 get page metadata",
+    "search <query> [--limit <n>] [--space <key>]                                         \u2014 search for pages",
+    "spaces                                                                                \u2014 list all spaces",
+    "find <title> [--space <key>]                                                          \u2014 find page by title",
+    "children <pageId> [--recursive] [--max-depth <n>] [--format list|tree|json]          \u2014 list child pages",
+    "create <title> <spaceKey> [--content <text>] [--file <path>] [--format markdown|html|storage] \u2014 create page",
+    "create-child <title> <parentId> [--content <text>] [--file <path>]                   \u2014 create child page",
+    "copy-tree <sourceId> <targetParentId> [newTitle] [--max-depth <n>] [--dry-run]       \u2014 copy page tree",
+    "update <pageId> [--title <t>] [--content <text>] [--file <path>]                     \u2014 update page",
+    "move <pageId|url> <newParentId|url> [--title <t>]                                    \u2014 move page",
+    "delete <pageId|url> [--yes]                                                           \u2014 delete page",
+    "edit <pageId> [--output <file>]                                                       \u2014 export page for editing",
+    "attachments <pageId|url> [--pattern <glob>] [--download] [--dest <dir>]              \u2014 list or download attachments",
+    "attachment-upload <pageId|url> --file <path> [--replace]                             \u2014 upload attachment",
+    "attachment-delete <pageId|url> <attachmentId> [--yes]                                \u2014 delete attachment",
+    "comments <pageId|url> [--format text|markdown|json] [--location inline|footer]       \u2014 list comments",
+    "comment <pageId|url> --content <text> [--parent <id>] [--location inline|footer]     \u2014 create comment",
+    "comment-delete <commentId> [--yes]                                                    \u2014 delete comment",
+    "property-list <pageId|url>                                                            \u2014 list content properties",
+    "property-get <pageId|url> <key>                                                       \u2014 get content property",
+    "property-set <pageId|url> <key> --value <json>                                       \u2014 set content property",
+    "property-delete <pageId|url> <key> [--yes]                                           \u2014 delete content property",
+    "export <pageId|url> [--format markdown|html|text] [--dest <dir>]                     \u2014 export page + attachments",
+    "profile list                                                                          \u2014 list configuration profiles",
+    "profile use <name>                                                                    \u2014 switch active profile",
+    "profile add <name> [--domain <d>] [--auth-type basic|bearer] [--token <t>]           \u2014 add profile",
+    "profile remove <name>                                                                 \u2014 remove profile",
+    "stats                                                                                 \u2014 view usage statistics"
+  ],
+  "provides": {
+    "tools": [
+      "confluence"
+    ]
+  },
+  "defaultConfig": {
+    "profile": "<YOUR_CONFLUENCE_PROFILE>"
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "allowCommands": {
+        "type": "string | string[]",
+        "description": "If set, only these command paths are permitted. A command path is the leading subcommand token(s) before any flags, e.g. 'read', 'search', 'create', 'profile list'. Prefix matching applies: 'create' covers 'create-child' as well. Omit to allow all commands (subject to denyCommands)."
+      },
+      "denyCommands": {
+        "type": "string | string[]",
+        "description": "These command paths are always blocked, even if listed in allowCommands. Deny beats allow. Prefix matching applies: 'create' blocks both 'create' and 'create-child'. Defaults to [] (nothing blocked) when no config is provided."
+      },
+      "allowReadSpaces": {
+        "type": "string | string[]",
+        "description": "If set, read operations (read, info, children, attachments, comments, property-list, property-get, export, edit, find, search with --space) are only permitted for pages/spaces in this list. Space keys are matched case-insensitively. Omit or leave empty to allow reading from all spaces. For page IDs, the space is resolved via a 'confluence info' lookup (results are cached). For URLs, the space key is parsed directly from the path."
+      },
+      "allowWriteSpaces": {
+        "type": "string | string[]",
+        "description": "If set, write operations (create, create-child, update, delete, move, copy-tree, attachment-upload, attachment-delete, comment, property-set, property-delete) are only permitted for pages/spaces in this list. Space keys are matched case-insensitively. Omit or leave empty to allow writing to all spaces. Note: comment-delete is not covered by space enforcement \u2014 use denyCommands to block it entirely."
+      },
+      "requireSpaceOnSearch": {
+        "type": "boolean",
+        "description": "When true, search calls without a --space flag are rejected. Forces agents to always scope searches. Default: false. IMPORTANT: only the --space flag is inspected. CQL expressions embedded in the query string (e.g. 'space IN (...)') are NOT parsed or enforced by this tool."
+      },
+      "timeout": {
+        "type": "number",
+        "description": "Timeout in seconds for each confluence invocation, including internal info lookups for space resolution. Default: 30."
+      },
+      "profile": {
+        "type": "string",
+        "description": "Default profile name. Prepended as --profile <value> to every call when --profile is not already in the agent's args. Also forwarded to internal info lookups. Optional."
+      }
+    }
+  }
+}

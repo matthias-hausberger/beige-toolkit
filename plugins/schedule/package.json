@@ -1,0 +1,8 @@
+{
+  "name": "@beige/tool-schedule",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "cron-parser": "^5.5.0"
+  }
+}

@@ -1,0 +1,162 @@
+# Apple Calendar Tool
+
+Read events from macOS Calendar (Apple Calendar). Uses a compiled Swift binary that reads directly from the EventKit store — fast (~0.1–0.5s per query), supports all calendar sources (iCloud, Google, Exchange, CalDAV, subscribed, birthdays). Read-only — no event creation or modification.
+
+## Installation
+
+Install this tool individually:
+
+```bash
+beige tools install github:matthias-hausberger/beige-toolkit/tools/apple-calendar
+```
+
+Or install all tools from the toolkit:
+
+```bash
+# From npm
+beige tools install npm:@matthias-hausberger/beige-toolkit
+
+# From GitHub
+beige tools install github:matthias-hausberger/beige-toolkit
+```
+
+## Configuration
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `allowedCommands` | all commands | If set, only these command paths are permitted. Prefix matching: `"events"` covers all events subcommands. |
+| `deniedCommands` | *(none)* | Command paths that are always blocked, even if in `allowedCommands`. Deny beats allow. Prefix matching applies. |
+| `timeout` | `10` | Timeout in seconds per calendar-cli invocation. |
+| `binaryPath` | auto-detected | Absolute path to the compiled calendar-cli binary. If omitted, the tool compiles it automatically from the bundled Swift source on first use. |
+
+All commands are permitted by default. No deny/allow restrictions until explicitly configured.
+
+### Command Paths
+
+| Args | Command path |
+|---|---|
+| `calendars` | `calendars` |
+| `events today` | `events today` |
+| `events tomorrow` | `events tomorrow` |
+| `events date 2026-03-20` | `events date` |
+| `events range 2026-03-18 2026-03-21` | `events range` |
+| `events search "standup" --from ...` | `events search` |
+
+## Prerequisites
+
+| Requirement | Details |
+|---|---|
+| **macOS** | EventKit is an Apple framework |
+| **Xcode Command Line Tools** | Needed to compile the Swift binary on first use. Install with: `xcode-select --install` |
+| **Calendar access permission** | macOS will prompt once to grant access. Approve in System Settings → Privacy & Security → Calendars. |
+
+## Binary Compilation
+
+The tool bundles a Swift source file (`calendar-cli.swift`). On first invocation, if no compiled binary is found, the handler compiles it automatically using `swiftc` (~5–10 seconds). Subsequent calls use the cached binary.
+
+To compile manually:
+```sh
+cd tools/apple-calendar
+swiftc calendar-cli.swift -o calendar-cli -O
+```
+
+To use a pre-compiled binary:
+```json5
+{
+  tools: {
+    "apple-calendar": {
+      config: {
+        binaryPath: "/usr/local/bin/calendar-cli",
+      },
+    },
+  },
+}
+```
+
+## Config Examples
+
+**Today-only agent:**
+```json5
+{
+  tools: {
+    "apple-calendar": {
+      config: {
+        allowedCommands: ["events today"],
+      },
+    },
+  },
+}
+```
+
+**Schedule viewer (no search/range):**
+```json5
+{
+  tools: {
+    "apple-calendar": {
+      config: {
+        allowedCommands: ["events today", "events tomorrow", "events date", "calendars"],
+      },
+    },
+  },
+}
+```
+
+**Everything except search:**
+```json5
+{
+  tools: {
+    "apple-calendar": {
+      config: {
+        deniedCommands: ["events search"],
+      },
+    },
+  },
+}
+```
+
+### Per-Agent Configuration (pluginConfigs)
+
+Use beige's `pluginConfigs` to give different agents different calendar permissions:
+
+```json5
+tools: {
+  "apple-calendar": {
+    config: {
+      // Baseline: all commands allowed
+    },
+  },
+},
+
+agents: {
+  // Scheduler agent — full calendar access
+  scheduler: {
+    tools: ["apple-calendar"],
+  },
+
+  // Summary bot — today and tomorrow only
+  summary: {
+    tools: ["apple-calendar"],
+    pluginConfigs: {
+      "apple-calendar": {
+        allowedCommands: ["events today", "events tomorrow", "calendars"],
+      },
+    },
+  },
+},
+```
+
+## Error Reference
+
+| Error | Cause |
+|---|---|
+| `calendar-cli binary not found` | Binary not compiled yet and swiftc not available |
+| `Calendar access denied` | macOS Calendar permission not granted |
+| `Invalid date format` | Date not in yyyy-MM-dd format |
+| `End date must be after start date` | Range end is before or equal to start |
+
+## Implementation Details
+
+- **Target**: Gateway (runs on the host, not in the sandbox)
+- **Dependency**: Xcode Command Line Tools (for compilation), macOS EventKit
+- **Binary**: `calendar-cli` — compiled Swift, reads EventKit store directly
+- **Stateless**: Each invocation spawns a fresh process

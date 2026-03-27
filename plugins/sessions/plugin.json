@@ -1,0 +1,22 @@
+{
+  "name": "sessions",
+  "description": "Browse and search your own conversation history. An agent can only access its own sessions \u2014 cross-agent access is not permitted. Provides listing, full message retrieval, and pattern-based search across session files.",
+  "commands": [
+    "list                                  \u2014 list your sessions (newest first)",
+    "list --include-active                 \u2014 also include the currently running session",
+    "list --format json                    \u2014 machine-readable list",
+    "get <key>                             \u2014 show full message history of a session",
+    "get <key> --all                       \u2014 show all messages (default truncates at 50)",
+    "get <key> --format json               \u2014 machine-readable message list",
+    "grep <pattern>                        \u2014 search messages across your sessions (up to 100, newest first)",
+    "grep <pattern> --session <key>        \u2014 search within one session only",
+    "grep <pattern> --max-sessions <n>     \u2014 search up to N sessions (default: 100)",
+    "grep <pattern> --max-matches <n>      \u2014 stop after N total matches (default: 50)",
+    "grep <pattern> --format json          \u2014 machine-readable matches"
+  ],
+  "provides": {
+    "tools": [
+      "sessions"
+    ]
+  }
+}

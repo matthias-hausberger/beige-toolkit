@@ -1,20 +1,20 @@
 {
   "name": "@matthias-hausberger/beige-toolkit",
-  "version": "0.1.1-beta1",
+  "version": "1.0.0-beta5",
   "description": "A collection of tools for Beige agents",
   "publishConfig": {
     "access": "public"
   },
   "type": "module",
   "files": [
-    "tools/*/tool.json",
-    "tools/*/package.json",
-    "tools/*/*.ts",
-    "tools/*/README.md",
-    "tools/*/SKILL.md",
-    "tools/*/skills/**",
-    "tools/apple-calendar/calendar-cli.swift",
-    "tools/apple-calendar/calendar-cli"
+    "plugins/*/plugin.json",
+    "plugins/*/package.json",
+    "plugins/*/*.ts",
+    "plugins/*/README.md",
+    "plugins/*/SKILL.md",
+    "plugins/*/skills/**",
+    "plugins/apple-calendar/calendar-cli.swift",
+    "plugins/apple-calendar/calendar-cli"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -23,6 +23,9 @@
     "smoke": "bash scripts/smoke.sh"
   },
   "devDependencies": {
+    "@matthias-hausberger/beige": "1.0.0-beta3",
+    "cron-parser": "^5.5.0",
+    "grammy": "^1.35.0",
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
     "vitest": "^4.0.18"

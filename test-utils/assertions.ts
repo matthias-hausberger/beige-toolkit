@@ -1,17 +1,22 @@
 import { expect } from "vitest";
-import type { ToolManifest } from "./loadManifest.js";
+import type { PluginManifest } from "./loadManifest.js";
+
+/** @deprecated Use PluginManifest */
+export type ToolManifest = PluginManifest;
 
 /**
- * Assert that a tool manifest has all required fields.
+ * Assert that a plugin manifest has all required fields.
  */
-export function assertValidToolManifest(manifest: unknown): asserts manifest is ToolManifest {
+export function assertValidPluginManifest(manifest: unknown): asserts manifest is PluginManifest {
   expect(manifest).toBeDefined();
-  expect(typeof (manifest as ToolManifest).name).toBe("string");
-  expect((manifest as ToolManifest).name.length).toBeGreaterThan(0);
-  expect(typeof (manifest as ToolManifest).description).toBe("string");
-  expect((manifest as ToolManifest).description.length).toBeGreaterThan(0);
-  expect(["gateway", "sandbox"]).toContain((manifest as ToolManifest).target);
+  expect(typeof (manifest as PluginManifest).name).toBe("string");
+  expect((manifest as PluginManifest).name.length).toBeGreaterThan(0);
+  expect(typeof (manifest as PluginManifest).description).toBe("string");
+  expect((manifest as PluginManifest).description.length).toBeGreaterThan(0);
 }
+
+/** @deprecated Use assertValidPluginManifest */
+export const assertValidToolManifest = assertValidPluginManifest;
 
 /**
  * Assert a tool result indicates success.

@@ -1,0 +1,282 @@
+# Chrome Tool
+
+Control a Chrome browser from within Beige agents. Wraps [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp) — giving agents full access to navigation, DOM inspection, JavaScript evaluation, screenshots, network monitoring, and performance analysis. Each agent gets its own persistent Chrome profile.
+
+## Installation
+
+Install this tool individually:
+
+```bash
+beige tools install github:matthias-hausberger/beige-toolkit/tools/chrome
+```
+
+Or install all tools from the toolkit:
+
+```bash
+# From npm
+beige tools install npm:@matthias-hausberger/beige-toolkit
+
+# From GitHub
+beige tools install github:matthias-hausberger/beige-toolkit
+```
+
+## Configuration
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `slim` | `false` | Launch in slim mode — only navigate, evaluate, and screenshot tools are available. Much lower token usage. |
+| `headless` | `"fallback"` | Headless mode. `true` = always headless; `false` = always use a display; `"fallback"` = use a display if one is available (X11 socket present — works with physical screens and virtual VNC displays), otherwise start headless automatically. |
+| `viewport` | unset (Chrome default) | Browser viewport size as `WxH`, e.g. `"1280x720"`. |
+| `idleTimeoutMinutes` | `30` | Automatically close the browser process after this many minutes of inactivity. Next call respawns it. |
+| `version` | `"latest"` | `chrome-devtools-mcp` npm version to use via npx. |
+| `allowTools` | all tools | If set, only these MCP tool names are callable. Omit to allow all. |
+| `denyTools` | *(none)* | These MCP tool names are always blocked, even if in `allowTools`. Deny beats allow. |
+| `timeout` | `60` | Timeout per MCP tool call in seconds. |
+| `noUsageStatistics` | `true` | Opt out of Google usage statistics collection. |
+| `proxyServer` | *(none)* | Proxy server URL, e.g. `"http://proxy:8080"`. |
+| `acceptInsecureCerts` | `false` | Accept insecure TLS certificates. |
+| `executablePath` | *(auto-detect)* | Absolute path to the Chrome or Chromium binary. Overrides auto-detection. |
+| `fallbackToChromium` | `true` | If no Chrome binary is found, automatically try known Chromium paths. |
+| `display` | *(inherited)* | X11 display for the browser window, e.g. `":1"` for TigerVNC virtual screen 1. Linux only — no effect on macOS/Windows or when `headless: true`. |
+
+All MCP tools are permitted by default (no allow/deny restrictions). The browser launches lazily on first use and auto-closes after the idle timeout.
+
+## Prerequisites
+
+| Requirement | Details |
+|---|---|
+| Google Chrome or Chromium | Installed on the gateway host. Chrome is tried first; Chromium is used as a fallback when `fallbackToChromium: true` (default). |
+| Node.js + `npx` | Required to run `chrome-devtools-mcp` |
+
+## Browser Process Lifecycle
+
+- **Lazy start**: Browser only starts on the first tool call.
+- **Persistent per agent**: One process per agent, reused across all calls.
+- **Idle timeout**: Process killed after `idleTimeoutMinutes` of inactivity (default: 30). Next call respawns it.
+- **Crash recovery**: If Chrome crashes, the next call starts a fresh browser automatically.
+- **Profile persistence**: `~/.beige/browser-profiles/<agentName>/` is never deleted — logins and storage survive restarts.
+
+## Config Examples
+
+**Read-only browser agent** (can inspect but not interact):
+```json5
+{
+  tools: {
+    chrome: {
+      config: {
+        allowTools: ["take_snapshot", "take_screenshot", "list_pages",
+                     "list_console_messages", "list_network_requests"],
+      },
+    },
+  },
+}
+```
+
+**Slim headless agent** (minimal token usage, no visible window):
+```json5
+{
+  tools: {
+    chrome: {
+      config: {
+        slim: true,
+        headless: true,   // force headless regardless of display availability
+      },
+    },
+  },
+}
+```
+
+**Fallback mode** (display if available, headless otherwise — the default):
+```json5
+{
+  tools: {
+    chrome: {
+      config: {
+        headless: "fallback",
+      },
+    },
+  },
+}
+```
+
+**No JavaScript evaluation** (automation without script injection):
+```json5
+{
+  tools: {
+    chrome: {
+      config: {
+        denyTools: ["evaluate_script"],
+      },
+    },
+  },
+}
+```
+
+### Per-Agent Configuration (pluginConfigs)
+
+Beige supports per-agent `pluginConfigs` overrides that are deep-merged with the top-level tool config. This lets you share one Chrome tool definition but give each agent different capabilities:
+
+```json5
+tools: {
+  chrome: {
+    config: {
+      // Baseline: headless, standard timeout
+      headless: true,
+      timeout: 60,
+    },
+  },
+},
+
+agents: {
+  // QA agent — full browser access, visible window, longer timeout
+  qa: {
+    tools: ["chrome"],
+    pluginConfigs: {
+      chrome: {
+        headless: false,        // override: visible browser for debugging
+        timeout: 120,           // override: longer timeout for complex tests
+      },
+    },
+  },
+
+  // Scraper agent — headless (inherits baseline), slim mode, restricted tools
+  scraper: {
+    tools: ["chrome"],
+    pluginConfigs: {
+      chrome: {
+        slim: true,             // added: minimal tool set
+        allowTools: ["take_snapshot", "navigate_page", "take_screenshot"],
+      },
+    },
+  },
+
+  // Reporter agent — read-only, no interaction tools
+  reporter: {
+    tools: ["chrome"],
+    pluginConfigs: {
+      chrome: {
+        allowTools: ["take_snapshot", "take_screenshot", "list_pages",
+                     "list_console_messages", "list_network_requests"],
+        denyTools: ["evaluate_script", "click", "fill", "fill_form"],
+      },
+    },
+  },
+
+  // Default agent — uses baseline config as-is (headless, 60s timeout)
+  assistant: {
+    tools: ["chrome"],
+  },
+},
+```
+
+> **Note:** `pluginConfigs` values are deep-merged with the top-level config. In the example above, the QA agent's effective config is `{ headless: false, timeout: 120 }` — the overrides replace the baseline values, while other baseline settings are preserved.
+
+## Browser Detection & Chromium Fallback
+
+When `executablePath` is not set, the tool scans a list of well-known binary paths in order:
+
+1. **Chrome paths** — `/opt/google/chrome/chrome`, beta/dev variants, `/usr/bin/google-chrome[-stable]`
+2. **Chromium paths** *(only if `fallbackToChromium: true`)* — `/usr/bin/chromium`, `/usr/bin/chromium-browser`, Snap, system lib, Flatpak
+
+The first path that exists on disk wins.  If nothing is found, `chrome-devtools-mcp` falls back to its own built-in discovery (which typically finds Chrome via `which google-chrome`).
+
+To pin a specific binary regardless of what is installed:
+
+```json5
+{
+  tools: {
+    chrome: {
+      config: {
+        executablePath: "/usr/bin/chromium-browser",
+      },
+    },
+  },
+}
+```
+
+To disable the Chromium fallback entirely (fail if Chrome is not present):
+
+```json5
+{
+  tools: {
+    chrome: {
+      config: {
+        fallbackToChromium: false,
+      },
+    },
+  },
+}
+```
+
+## VNC / Virtual Displays (Linux)
+
+On Linux you can route the browser window to a specific TigerVNC (or other X11) virtual screen instead of the physical display. This is useful when the gateway host is headless but you still want a visible, interactive browser session inside a VNC framebuffer.
+
+**How it works:** the tool sets the `DISPLAY` environment variable on the `chrome-devtools-mcp` child process, which inherits it into the Chrome subprocess. Chrome then connects to the specified X11 server.
+
+**Requirements:**
+- A running VNC server for the target display (e.g. `tigervncserver :1` already started).
+- `headless` must not be `true` — headless mode renders entirely in memory and ignores `DISPLAY`.
+
+**Config:**
+
+```json5
+{
+  tools: {
+    chrome: {
+      config: {
+        // "fallback" (the default) automatically uses :1 when tigervncserver is
+        // running, and falls back to headless if it is not.
+        headless: "fallback",
+        display: ":1",   // open on TigerVNC virtual screen 1
+      },
+    },
+  },
+}
+```
+
+Or pin to always use the display (will error if the VNC server is not running):
+
+```json5
+{
+  tools: {
+    chrome: {
+      config: {
+        headless: false,
+        display: ":1",
+      },
+    },
+  },
+}
+```
+
+Use `:2`, `:3`, … for additional VNC sessions.  If `display` is omitted, the browser inherits the gateway process's own `DISPLAY` (or none, if the gateway has no display set).
+
+> **Note:** The agent cannot choose or change the display at runtime — `display` is a static gateway-operator configuration. This is intentional: display routing is infrastructure, not agent behaviour.
+
+## Security Model
+
+| Concern | How it is handled |
+|---|---|
+| **Per-agent isolation** | Each agent has its own Chrome profile. No cookie or session sharing. |
+| **Tool allowlist/denylist** | `allowTools` / `denyTools` restrict callable MCP tools. Deny beats allow. |
+| **No default denylist** | All tools permitted by default — access is gated by the agent having `chrome` in its `tools` list. |
+| **Profile never auto-deleted** | Delete `~/.beige/browser-profiles/<agentName>/` manually to reset. |
+| **Usage statistics** | Disabled by default (`noUsageStatistics: true`). |
+
+## Error Reference
+
+| Error | Cause |
+|---|---|
+| `agent identity unknown` | `BEIGE_AGENT_NAME` not set — requires beige ≥ 0.1.3 |
+| `failed to start chrome-devtools-mcp` | `npx` not found, or no Chrome/Chromium binary found. Set `executablePath` or install a browser. |
+| `process exited unexpectedly` | Chrome crashed — next call respawns |
+| `Permission denied: tool 'X' is blocked by denyTools` | Tool is in the denylist |
+| `Permission denied: tool 'X' is not in allowTools` | allowTools is set and tool not listed |
+| `MCP request timed out` | Tool call exceeded `timeout` seconds |
+
+## Implementation Details
+
+- **Target**: Gateway (runs on the host, not in the sandbox)
+- **Dependency**: Chrome, Node.js, `npx`
+- **Protocol**: MCP (Model Context Protocol) over stdio to `chrome-devtools-mcp`

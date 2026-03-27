@@ -1,0 +1,64 @@
+{
+  "name": "git",
+  "description": "Run git commands against the agent's workspace on the gateway host. Supports clone, pull, push, commit, and more. Authentication uses a per-agent ed25519 SSH key stored at ~/.beige/agents/<name>/ssh/id_ed25519 \u2014 never the gateway operator's own SSH keys. Repository deletion and git config mutation are permanently blocked. Force-push is blocked by default.",
+  "commands": [
+    "clone <url> [dir]                         \u2014 Clone a repository into the workspace",
+    "pull [remote] [branch]                    \u2014 Pull from remote",
+    "push [remote] [branch]                    \u2014 Push to remote",
+    "fetch [remote]                            \u2014 Fetch from remote",
+    "add <pathspec...>                          \u2014 Stage files",
+    "commit -m <message>                       \u2014 Commit staged changes",
+    "status                                    \u2014 Show working tree status",
+    "diff [pathspec...]                        \u2014 Show unstaged changes",
+    "diff --staged [pathspec...]               \u2014 Show staged changes",
+    "log [--oneline] [--limit <n>]             \u2014 Show commit history",
+    "checkout <branch>                         \u2014 Switch branch",
+    "checkout -b <branch>                      \u2014 Create and switch branch",
+    "branch [-a]                               \u2014 List branches",
+    "merge <branch>                            \u2014 Merge a branch",
+    "rebase <branch>                           \u2014 Rebase onto a branch",
+    "stash [push|pop|list]                     \u2014 Stash changes",
+    "remote [-v]                               \u2014 List remotes",
+    "tag <name>                                \u2014 Create a tag"
+  ],
+  "provides": {
+    "tools": [
+      "git"
+    ]
+  },
+  "defaultConfig": {
+    "identity": {
+      "name": "Agent Beige",
+      "email": "<YOUR_EMAIL>"
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "allowedCommands": {
+        "type": "string | string[]",
+        "description": "Whitelist of git subcommands the agent may run. Defaults to a safe read/write set when absent. 'config' is always blocked regardless of this setting."
+      },
+      "deniedCommands": {
+        "type": "string | string[]",
+        "description": "Blacklist of git subcommands. Always blocked even if present in allowedCommands. Deny beats allow."
+      },
+      "allowedRemotes": {
+        "type": "string | string[]",
+        "description": "Glob patterns matched against remote URLs. If set, push/fetch/pull/clone are only permitted to matching remotes. Omit to allow all remotes."
+      },
+      "allowForcePush": {
+        "type": "boolean",
+        "description": "Allow git push --force and --force-with-lease. Default: false."
+      },
+      "identity": {
+        "type": "object",
+        "description": "Git commit author identity. If omitted, falls back to whatever git finds in the workspace .git/config. Values can use ${ENV_VAR} for injection."
+      },
+      "auth": {
+        "type": "object",
+        "description": "Authentication override. When absent, the tool uses the per-agent SSH key at agentDir/ssh/id_ed25519 (recommended). Use this only when you need a non-default key path or HTTPS token auth."
+      }
+    }
+  }
+}

@@ -11,6 +11,6 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["tools/**/*.ts", "test-utils/**/*.ts", "tests/**/*.ts"],
+  "include": ["plugins/**/*.ts", "test-utils/**/*.ts", "tests/**/*.ts"],
   "exclude": ["node_modules", "**/*.test.ts", "**/*.spec.ts"]
 }

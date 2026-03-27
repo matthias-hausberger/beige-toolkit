@@ -1,0 +1,55 @@
+{
+  "name": "telegram",
+  "description": "Telegram channel and messaging tool for Beige agents. Provides a GrammY-based bot that connects Telegram users to agents, plus a tool for agents to send proactive Telegram messages.",
+  "commands": [
+    "sendMessage <chatId> <text>               — Send a message to a Telegram chat",
+    "sendMessage <chatId> --thread <id> <text> — Send to a specific thread/topic"
+  ],
+  "provides": {
+    "channel": true,
+    "tools": ["telegram"]
+  },
+  "defaultConfig": {
+    "token": "<YOUR_TELEGRAM_BOT_TOKEN>",
+    "allowedUsers": [123456789],
+    "agentMapping": {
+      "default": "assistant"
+    },
+    "defaults": {
+      "verbose": false,
+      "streaming": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "required": ["token", "allowedUsers", "agentMapping"],
+    "properties": {
+      "token": {
+        "type": "string",
+        "description": "Telegram Bot API token. Use ${TELEGRAM_BOT_TOKEN} for env var injection."
+      },
+      "allowedUsers": {
+        "type": "array",
+        "items": { "type": "number" },
+        "description": "List of Telegram user IDs allowed to interact with the bot."
+      },
+      "agentMapping": {
+        "type": "object",
+        "properties": {
+          "default": {
+            "type": "string",
+            "description": "Default agent name for all users."
+          }
+        },
+        "required": ["default"]
+      },
+      "defaults": {
+        "type": "object",
+        "properties": {
+          "verbose": { "type": "boolean", "description": "Default verbose mode. Default: false." },
+          "streaming": { "type": "boolean", "description": "Default streaming mode. Default: true." }
+        }
+      }
+    }
+  }
+}

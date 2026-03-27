@@ -1,0 +1,42 @@
+{
+  "name": "slack",
+  "description": "Interact with Slack workspaces via the slackcli binary installed on the gateway host. Supports listing conversations, reading message history, sending messages, adding reactions, and more. Access is controlled via an allowlist and denylist at the subcommand level (e.g. deny 'messages send' while allowing all other messages subcommands).",
+  "commands": [
+    "conversations list [--types <types>] [--limit <n>] [--exclude-archived]  \u2014 list channels and DMs",
+    "conversations read <channel-id> [--limit <n>] [--thread-ts <ts>] [--json] \u2014 read conversation history",
+    "messages send --recipient-id <id> --message <text>                        \u2014 send a message (may be denied by config)",
+    "messages react --channel-id <id> --timestamp <ts> --emoji <name>          \u2014 add a reaction",
+    "messages draft --recipient-id <id> --message <text>                       \u2014 create a draft message",
+    "auth list                                                                  \u2014 list authenticated workspaces",
+    "auth set-default <workspace-id>                                            \u2014 set default workspace"
+  ],
+  "provides": {
+    "tools": [
+      "slack"
+    ]
+  },
+  "defaultConfig": {
+    "workspace": "<YOUR_SLACK_WORKSPACE>"
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "allowCommands": {
+        "type": "string | string[]",
+        "description": "If set, only these command paths are permitted. A command path is the leading subcommand(s) before any flags, e.g. 'messages send' or 'conversations'. Omit to allow all commands (subject to denyCommands)."
+      },
+      "denyCommands": {
+        "type": "string | string[]",
+        "description": "These command paths are always blocked, even if listed in allowCommands. Deny beats allow. Prefix matching applies: 'messages' blocks all messages subcommands; 'messages send' blocks only send. Defaults to ['auth login', 'auth login-browser', 'auth logout', 'auth remove', 'auth extract-tokens', 'auth parse-curl', 'update'] when no config is provided."
+      },
+      "timeout": {
+        "type": "number",
+        "description": "Timeout in seconds for each slackcli invocation. Default: 30."
+      },
+      "workspace": {
+        "type": "string",
+        "description": "Default workspace ID or name to pass via --workspace when not specified by the agent. Optional."
+      }
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "apple-calendar",
+  "description": "Read events from macOS Calendar (Apple Calendar). Supports all calendar sources \u2014 iCloud, Google, Exchange, subscribed calendars, etc. List calendars, view events for today/tomorrow/specific dates, query date ranges, and search by title, notes, or location. Read-only \u2014 no event creation or modification. Requires macOS and Calendar access permission.",
+  "commands": [
+    "calendars                                              \u2014 List all calendars",
+    "events today                                           \u2014 Events occurring today",
+    "events tomorrow                                        \u2014 Events occurring tomorrow",
+    "events date <yyyy-MM-dd>                               \u2014 Events on a specific date",
+    "events range <yyyy-MM-dd> <yyyy-MM-dd>                 \u2014 Events in a date range (inclusive)",
+    "events search <query> [--from <date>] [--to <date>]    \u2014 Search events by title/notes/location"
+  ],
+  "provides": {
+    "tools": [
+      "apple-calendar"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "binaryPath": {
+        "type": "string",
+        "description": "Absolute path to the compiled calendar-cli binary. If omitted, the tool compiles it automatically from the bundled Swift source on first use."
+      },
+      "timeout": {
+        "type": "number",
+        "description": "Timeout in seconds for each calendar-cli invocation. Default: 10."
+      },
+      "allowedCommands": {
+        "type": "string | string[]",
+        "description": "Whitelist of allowed command paths. If set, only these commands are permitted. Omit to allow all. Prefix matching: 'events' covers all events subcommands."
+      },
+      "deniedCommands": {
+        "type": "string | string[]",
+        "description": "Blacklist of command paths. Always blocked, even if in allowedCommands. Deny beats allow."
+      }
+    }
+  }
+}

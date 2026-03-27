@@ -1,0 +1,42 @@
+{
+  "name": "github",
+  "description": "Interact with GitHub using the GitHub CLI (gh). Manage repos, issues, pull requests, releases, and more. Requires gh to be installed and authenticated on the gateway host. Repository deletion is permanently blocked. Raw API access ('api') is off by default but can be enabled via allowedCommands config.",
+  "commands": [
+    "repo list [owner]                         \u2014 List repositories",
+    "repo view <owner/repo>                    \u2014 View repository details",
+    "repo clone <owner/repo> [dir]             \u2014 Clone a repository",
+    "issue list --repo <owner/repo>            \u2014 List issues",
+    "issue view <number> --repo <owner/repo>   \u2014 View an issue",
+    "issue create --repo <owner/repo> --title <title> --body <body>  \u2014 Create an issue",
+    "pr list --repo <owner/repo>               \u2014 List pull requests",
+    "pr view <number> --repo <owner/repo>      \u2014 View a pull request",
+    "pr create --repo <owner/repo> --title <title> --body <body>     \u2014 Create a pull request",
+    "release list --repo <owner/repo>          \u2014 List releases",
+    "run list --repo <owner/repo>              \u2014 List workflow runs"
+  ],
+  "provides": {
+    "tools": [
+      "github"
+    ]
+  },
+  "defaultConfig": {
+    "token": "<YOUR_GITHUB_TOKEN>"
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "token": {
+        "type": "string",
+        "description": "GitHub token used to authenticate gh. Passed via GH_TOKEN and takes precedence over any credential stored on the host. Accepts classic personal access tokens (ghp_\u2026) and fine-grained PATs (github_pat_\u2026). When absent, gh falls back to its locally stored auth (~/.config/gh/, GITHUB_TOKEN env var, etc.)."
+      },
+      "allowedCommands": {
+        "type": "string | string[]",
+        "description": "Whitelist of top-level gh subcommands (e.g. 'repo', 'issue', 'pr'). Defaults to all when absent."
+      },
+      "deniedCommands": {
+        "type": "string | string[]",
+        "description": "Blacklist of top-level gh subcommands. Takes precedence over allowedCommands."
+      }
+    }
+  }
+}

@@ -1,0 +1,201 @@
+# Slack Tool
+
+Interact with Slack workspaces via the [`slackcli`](https://github.com/shaharia-lab/slackcli) binary installed on the gateway host. Agents pass slackcli arguments directly; the tool enforces a command-level permission layer before executing anything.
+
+## Installation
+
+Install this tool individually:
+
+```bash
+beige tools install github:matthias-hausberger/beige-toolkit/tools/slack
+```
+
+Or install all tools from the toolkit:
+
+```bash
+# From npm
+beige tools install npm:@matthias-hausberger/beige-toolkit
+
+# From GitHub
+beige tools install github:matthias-hausberger/beige-toolkit
+```
+
+## Configuration
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `allowCommands` | all commands | If set, only these command paths are permitted. A command path is the leading 1–2 subcommand tokens, e.g. `"messages send"`. Prefix matching: `"messages"` covers all messages subcommands. Omit to allow all (subject to `denyCommands`). |
+| `denyCommands` | see below | Command paths that are always blocked, even if in `allowCommands`. Deny beats allow. Prefix matching applies. |
+| `timeout` | `30` | Timeout in seconds for each slackcli invocation. |
+| `workspace` | *(none)* | Default workspace ID or name. Appended as `--workspace` when not specified by the agent. |
+
+When **no config is provided at all**, a built-in denylist is applied automatically: `auth login`, `auth login-browser`, `auth logout`, `auth remove`, `auth extract-tokens`, `auth parse-curl`, `update`. These are auth-mutating operations that agents should not run autonomously. When **any config is provided** (even just `timeout`), the default denylist is replaced entirely by whatever you configure in `denyCommands`.
+
+## Prerequisites
+
+| Requirement | Details |
+|---|---|
+| `slackcli` | Must be installed and authenticated on the gateway host |
+
+## Permission Model
+
+Access is controlled at the **command path** level. A command path is the leading 1–2 subcommand tokens before any flags.
+
+**Matching is by prefix:** `"messages"` in a deny list blocks `messages send`, `messages react`, and `messages draft`. `"messages send"` blocks only send.
+
+**Precedence:** deny beats allow. Checked in order:
+1. `denyCommands` — if any entry matches → rejected immediately
+2. `allowCommands` — if set and no entry matches → rejected
+3. Otherwise → permitted
+
+## Config Examples
+
+**Read-only agent** (can read everything, cannot send or mutate auth):
+```json5
+{
+  tools: {
+    slack: {
+      config: {
+        denyCommands: ["messages send", "messages draft", "auth login", "auth logout", "update"],
+      },
+    },
+  },
+}
+```
+
+**Strictly scoped agent** (can only list channels and read history):
+```json5
+{
+  tools: {
+    slack: {
+      config: {
+        allowCommands: ["conversations list", "conversations read"],
+      },
+    },
+  },
+}
+```
+
+**Notification agent** (can only send messages, nothing else):
+```json5
+{
+  tools: {
+    slack: {
+      config: {
+        allowCommands: ["messages send"],
+      },
+    },
+  },
+}
+```
+
+**React-only agent** (can only add emoji reactions):
+```json5
+{
+  tools: {
+    slack: {
+      config: {
+        allowCommands: ["messages react"],
+      },
+    },
+  },
+}
+```
+
+**Full access except sending** (everything allowed except send and draft):
+```json5
+{
+  tools: {
+    slack: {
+      config: {
+        denyCommands: ["messages send", "messages draft"],
+      },
+    },
+  },
+}
+```
+
+### Per-Agent Configuration (pluginConfigs)
+
+Use beige's `pluginConfigs` to give different agents different Slack permissions:
+
+```json5
+tools: {
+  slack: {
+    config: {
+      // Baseline: read-only, no sending
+      denyCommands: ["messages send", "messages draft",
+                     "auth login", "auth logout", "update"],
+      workspace: "my-workspace",
+    },
+  },
+},
+
+agents: {
+  // Monitor agent — read-only, uses baseline
+  monitor: {
+    tools: ["slack"],
+  },
+
+  // Notification agent — can send messages
+  notifier: {
+    tools: ["slack"],
+    pluginConfigs: {
+      slack: {
+        denyCommands: ["messages draft", "auth login", "auth logout", "update"],
+        // messages send is no longer denied
+      },
+    },
+  },
+
+  // React bot — can only add reactions
+  reactor: {
+    tools: ["slack"],
+    pluginConfigs: {
+      slack: {
+        allowCommands: ["messages react"],
+      },
+    },
+  },
+},
+```
+
+## Available Commands
+
+### `conversations`
+
+```sh
+conversations list [--types <types>] [--limit <n>] [--exclude-archived] [--workspace <id>]
+conversations read <channel-id> [--limit <n>] [--thread-ts <ts>] [--oldest <ts>] [--latest <ts>] [--json] [--workspace <id>]
+```
+
+### `messages`
+
+```sh
+messages send --recipient-id <id> --message <text> [--thread-ts <ts>] [--workspace <id>]
+messages react --channel-id <id> --timestamp <ts> --emoji <name> [--workspace <id>]
+messages draft --recipient-id <id> --message <text> [--thread-ts <ts>] [--workspace <id>]
+```
+
+### `auth`
+
+```sh
+auth list
+auth set-default <workspace-id>
+# auth login, auth logout, auth remove — blocked by default denylist
+```
+
+## Error Reference
+
+| Error | Cause |
+|---|---|
+| `slackcli not found on PATH` | Binary not installed or not on gateway's PATH |
+| `Permission denied: command 'X' is blocked by denyCommands` | Command matched a deny entry |
+| `Permission denied: command 'X' is not in allowCommands` | allowCommands is set and command not listed |
+| *(empty output, exit 1)* | slackcli itself returned an error — check stderr in output |
+
+## Implementation Details
+
+- **Target**: Gateway (runs on the host, not in the sandbox)
+- **Dependency**: `slackcli` binary
+- **Stateless**: Each invocation spawns a fresh `slackcli` process

@@ -1,0 +1,51 @@
+{
+  "name": "schedule",
+  "description": "Create and manage scheduled tasks. An agent can schedule a one-off or recurring (cron) task that sends a prompt back to itself or runs a shell command on the gateway host. The agent that creates the schedule is always the one that receives the trigger — cross-agent scheduling is not supported. Exec actions require allowExec: true in the plugin config.",
+  "commands": [
+    "create --once <ISO8601>  --prompt <message...>               — one-off prompt",
+    "create --once <ISO8601>  --message-file <path>               — one-off prompt from file",
+    "create --once <ISO8601>  --exec <command>                    — one-off shell command",
+    "create --cron <expr>  [--tz <tz>]  --prompt <message...>    — recurring prompt",
+    "create --cron <expr>  [--tz <tz>]  --message-file <path>    — recurring prompt from file",
+    "create --cron <expr>  [--tz <tz>]  --exec <command>         — recurring shell command",
+    "create  ...  [--label <text>]  [--max-runs <n>]  [--expires <ISO8601>]",
+    "list    [--status active|paused|completed|all]  [--format json]",
+    "get     <id>",
+    "cancel  <id>",
+    "pause   <id>",
+    "resume  <id>",
+    "history <id>  [--limit <n>]  [--format json]",
+    "test    <id>  — trigger immediately regardless of nextRun"
+  ],
+  "provides": {
+    "tools": [
+      "schedule"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "storagePath": {
+        "type": "string",
+        "description": "Directory where schedule files are stored. Defaults to ~/.beige/plugins/schedule. Tilde is expanded."
+      },
+      "tickInterval": {
+        "type": "number",
+        "description": "How often (in seconds) the background loop checks for due schedules. Default: 15."
+      },
+      "allowExec": {
+        "type": "boolean",
+        "description": "Whether agents may create exec-type schedules (shell commands on the gateway host). Default: true. Agents are sandboxed, so exec runs on the gateway side of the trust boundary — disable explicitly if needed."
+      },
+      "maxSchedulesPerAgent": {
+        "type": "number",
+        "description": "Maximum number of active (non-completed, non-cancelled) schedules per agent. Default: 20."
+      }
+    }
+  },
+  "defaultConfig": {
+    "tickInterval": 15,
+    "allowExec": true,
+    "maxSchedulesPerAgent": 20
+  }
+}

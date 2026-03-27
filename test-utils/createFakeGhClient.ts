@@ -17,7 +17,9 @@ export interface FakeGhResult {
 }
 
 export type GhExecutor = (
-  args: string[]
+  args: string[],
+  token: string | undefined,
+  cwd: string
 ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
 
 export interface FakeGhClient {
@@ -35,14 +37,24 @@ export interface FakeGhClient {
 
   /** All args arrays that were dispatched through this fake. */
   calls: string[][];
+
+  /** Tokens passed to each invocation (parallel index with calls). */
+  tokens: (string | undefined)[];
+
+  /** Working directories passed to each invocation (parallel index with calls). */
+  cwds: string[];
 }
 
 export function createFakeGhClient(): FakeGhClient {
   const responses: Array<{ prefix: string[]; result: FakeGhResult }> = [];
   const calls: string[][] = [];
+  const tokens: (string | undefined)[] = [];
+  const cwds: string[] = [];
 
-  const run: GhExecutor = async (args: string[]) => {
+  const run: GhExecutor = async (args: string[], token: string | undefined, cwd: string) => {
     calls.push([...args]);
+    tokens.push(token);
+    cwds.push(cwd);
 
     for (const { prefix, result } of responses) {
       const matches = prefix.every((p, i) => args[i] === p);
@@ -65,6 +77,8 @@ export function createFakeGhClient(): FakeGhClient {
 
   return {
     calls,
+    tokens,
+    cwds,
     register(argsPrefix, result) {
       responses.push({ prefix: argsPrefix, result });
     },
