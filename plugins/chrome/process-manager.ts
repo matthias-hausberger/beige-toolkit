@@ -115,8 +115,15 @@ export interface ProcessConfig {
   version: string;
   /** --slim mode. */
   slim: boolean;
-  /** --headless mode. */
-  headless: boolean;
+  /**
+   * Headless mode for the browser.
+   *
+   *   true       — always headless (no display required)
+   *   false      — always use a display (fails if none is available)
+   *   "fallback" — use a display if one is available, otherwise fall back to
+   *                headless automatically (see resolveHeadless)
+   */
+  headless: boolean | "fallback";
   /** Viewport string e.g. "1280x720". */
   viewport?: string;
   /** Proxy server URL. */
@@ -142,7 +149,9 @@ export interface ProcessConfig {
    * X11 display to use when spawning the browser (Linux only).
    * Set to e.g. ":1" to open the browser on TigerVNC virtual screen 1.
    * Defaults to inheriting the gateway process's DISPLAY env var.
-   * Has no effect when headless is true or on non-Linux platforms.
+   * Has no effect when headless resolves to true or on non-Linux platforms.
+   * When headless is "fallback", this display is also the one probed for
+   * existence — if it does not exist the browser starts headless instead.
    */
   display?: string;
 }
@@ -409,6 +418,65 @@ export class ProcessManager {
 }
 
 // ---------------------------------------------------------------------------
+// Display detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the effective headless flag for a given config.
+ *
+ * | config value | display socket exists? | result  |
+ * |--------------|------------------------|---------|
+ * | true         | (any)                  | true    |
+ * | false        | (any)                  | false   |
+ * | "fallback"   | yes                    | false   |
+ * | "fallback"   | no / unknown           | true    |
+ *
+ * Detection for "fallback":
+ *   X11 servers — both real and virtual (TigerVNC, TightVNC, Xvfb, etc.) —
+ *   create a Unix domain socket at `/tmp/.X11-unix/X<N>` where N is the
+ *   display number.  We check for that socket rather than relying solely on
+ *   the DISPLAY env var, which may be set but pointing at a server that is no
+ *   longer running.
+ *
+ *   The display to probe is resolved in this order:
+ *     1. The explicit `display` config option (e.g. ":1")
+ *     2. The DISPLAY environment variable of the gateway process
+ *     3. Nothing found → no display → headless
+ *
+ * The `_existsFn` parameter is injectable for unit tests so the real
+ * filesystem is never touched during testing.
+ */
+export function resolveHeadless(
+  headless: boolean | "fallback",
+  display?: string,
+  _existsFn: (p: string) => boolean = existsSync
+): boolean {
+  if (headless !== "fallback") return headless;
+
+  // Determine which display to probe (explicit config wins over env var)
+  const displayValue = display ?? process.env.DISPLAY;
+  if (!displayValue) {
+    // No display configured or inherited — start headless
+    return true;
+  }
+
+  // Parse the display number from ":N" or "hostname:N" or ":N.screen" forms.
+  // We only care about the display number (the part after the last colon,
+  // before an optional dot), because the socket name is always X<N>.
+  const match = displayValue.match(/:(\d+)(?:\.\d+)?$/);
+  if (!match) {
+    // Unrecognised format — be safe and start headless
+    return true;
+  }
+
+  const socketPath = `/tmp/.X11-unix/X${match[1]}`;
+  const displayExists = _existsFn(socketPath);
+
+  // Return false (use display) only if the socket is actually present
+  return !displayExists;
+}
+
+// ---------------------------------------------------------------------------
 // CLI arg builder
 // ---------------------------------------------------------------------------
 
@@ -436,7 +504,7 @@ export function buildMcpArgs(
   if (exe) args.push(`--executablePath=${exe}`);
 
   if (config.slim) args.push("--slim");
-  if (config.headless) args.push("--headless");
+  if (resolveHeadless(config.headless, config.display, _existsFn)) args.push("--headless");
   if (config.viewport) args.push(`--viewport=${config.viewport}`);
   if (config.proxyServer) args.push(`--proxy-server=${config.proxyServer}`);
   if (config.acceptInsecureCerts) args.push("--accept-insecure-certs");

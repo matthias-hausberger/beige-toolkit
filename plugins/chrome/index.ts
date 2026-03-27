@@ -81,7 +81,18 @@ import type { McpTool } from "./mcp-client.ts";
 
 export interface ChromeConfig {
   slim?: boolean;
-  headless?: boolean;
+  /**
+   * Headless mode for the browser.
+   *
+   *   true       — always headless (no display required).
+   *   false      — always use a display (fails if none is available).
+   *   "fallback" — use a display if one exists (X11 socket present), otherwise
+   *                start headless automatically. Useful for servers that may or
+   *                may not have a virtual display (e.g. TigerVNC) running.
+   *
+   * Default: "fallback"
+   */
+  headless?: boolean | "fallback";
   viewport?: string;
   idleTimeoutMinutes?: number;
   version?: string;
@@ -365,7 +376,7 @@ export function createHandler(
       beigeDataDir,
       version: config.version ?? "latest",
       slim: config.slim ?? false,
-      headless: config.headless ?? false,
+      headless: config.headless ?? "fallback",
       viewport: config.viewport,
       proxyServer: config.proxyServer,
       acceptInsecureCerts: config.acceptInsecureCerts ?? false,
@@ -542,7 +553,7 @@ export function createPlugin(
     beigeDataDir: resolveBeigeDataDir(),
     version: (config.version as string) ?? "latest",
     slim: (config.slim as boolean) ?? false,
-    headless: (config.headless as boolean) ?? false,
+    headless: (config.headless as boolean | "fallback") ?? "fallback",
     viewport: config.viewport as string | undefined,
     proxyServer: config.proxyServer as string | undefined,
     acceptInsecureCerts: (config.acceptInsecureCerts as boolean) ?? false,

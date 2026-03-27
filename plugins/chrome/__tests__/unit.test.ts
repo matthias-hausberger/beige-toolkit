@@ -14,6 +14,7 @@ import {
   setChromeDownloadPreferences,
   findBrowserExecutable,
   buildMcpArgs,
+  resolveHeadless,
   CHROME_PATHS,
   CHROMIUM_PATHS,
   type ProcessConfig,
@@ -667,6 +668,119 @@ describe("buildMcpArgs — other flags", () => {
     expect(args).toContain("--headless");
   });
 
+  it("omits --headless when headless is false", () => {
+    const args = buildMcpArgs(makeConfig({ headless: false }), "/p", () => false);
+    expect(args).not.toContain("--headless");
+  });
+
+  it('adds --headless when headless is "fallback" and no display socket exists', () => {
+    // existsFn returns false for X11 socket → no display → headless
+    const args = buildMcpArgs(makeConfig({ headless: "fallback" }), "/p", () => false);
+    expect(args).toContain("--headless");
+  });
+
+  it('omits --headless when headless is "fallback" and display socket exists', () => {
+    // existsFn returns true for the X11 socket → display available → not headless
+    const existsFn = (p: string) => p.startsWith("/tmp/.X11-unix/");
+    const args = buildMcpArgs(
+      makeConfig({ headless: "fallback", display: ":1" }),
+      "/p",
+      existsFn
+    );
+    expect(args).not.toContain("--headless");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveHeadless
+// ---------------------------------------------------------------------------
+
+describe("resolveHeadless", () => {
+  it("returns true when headless is true, regardless of display", () => {
+    expect(resolveHeadless(true, ":1", () => true)).toBe(true);
+    expect(resolveHeadless(true, ":1", () => false)).toBe(true);
+    expect(resolveHeadless(true, undefined, () => true)).toBe(true);
+  });
+
+  it("returns false when headless is false, regardless of display", () => {
+    expect(resolveHeadless(false, ":1", () => true)).toBe(false);
+    expect(resolveHeadless(false, ":1", () => false)).toBe(false);
+    expect(resolveHeadless(false, undefined, () => false)).toBe(false);
+  });
+
+  it('returns true (headless) for "fallback" when no display is configured', () => {
+    // No display arg, existsFn irrelevant — no DISPLAY env in test env
+    const origDisplay = process.env.DISPLAY;
+    delete process.env.DISPLAY;
+    try {
+      expect(resolveHeadless("fallback", undefined, () => false)).toBe(true);
+    } finally {
+      if (origDisplay !== undefined) process.env.DISPLAY = origDisplay;
+    }
+  });
+
+  it('returns true (headless) for "fallback" when display socket does not exist', () => {
+    expect(resolveHeadless("fallback", ":1", () => false)).toBe(true);
+  });
+
+  it('returns false (use display) for "fallback" when display socket exists', () => {
+    // existsFn returns true for /tmp/.X11-unix/X1
+    const exists = (p: string) => p === "/tmp/.X11-unix/X1";
+    expect(resolveHeadless("fallback", ":1", exists)).toBe(false);
+  });
+
+  it("probes the correct socket path for display :0", () => {
+    const probed: string[] = [];
+    resolveHeadless("fallback", ":0", (p) => { probed.push(p); return false; });
+    expect(probed).toContain("/tmp/.X11-unix/X0");
+  });
+
+  it("probes the correct socket path for display :99", () => {
+    const probed: string[] = [];
+    resolveHeadless("fallback", ":99", (p) => { probed.push(p); return false; });
+    expect(probed).toContain("/tmp/.X11-unix/X99");
+  });
+
+  it("handles display with screen suffix (:1.0) correctly", () => {
+    const exists = (p: string) => p === "/tmp/.X11-unix/X1";
+    expect(resolveHeadless("fallback", ":1.0", exists)).toBe(false);
+  });
+
+  it("handles remote display format (hostname:1) correctly", () => {
+    const exists = (p: string) => p === "/tmp/.X11-unix/X1";
+    expect(resolveHeadless("fallback", "myhost:1", exists)).toBe(false);
+  });
+
+  it('returns true (headless) for "fallback" with unrecognised display format', () => {
+    expect(resolveHeadless("fallback", "weird-format", () => true)).toBe(true);
+  });
+
+  it('uses DISPLAY env var when display arg is not set', () => {
+    const origDisplay = process.env.DISPLAY;
+    process.env.DISPLAY = ":2";
+    try {
+      const exists = (p: string) => p === "/tmp/.X11-unix/X2";
+      expect(resolveHeadless("fallback", undefined, exists)).toBe(false);
+    } finally {
+      if (origDisplay !== undefined) process.env.DISPLAY = origDisplay;
+      else delete process.env.DISPLAY;
+    }
+  });
+
+  it('explicit display arg takes precedence over DISPLAY env var', () => {
+    const origDisplay = process.env.DISPLAY;
+    process.env.DISPLAY = ":5"; // env says :5 …
+    try {
+      // … but config says :3, so we should probe X3, not X5
+      const probed: string[] = [];
+      resolveHeadless("fallback", ":3", (p) => { probed.push(p); return false; });
+      expect(probed).toContain("/tmp/.X11-unix/X3");
+      expect(probed).not.toContain("/tmp/.X11-unix/X5");
+    } finally {
+      if (origDisplay !== undefined) process.env.DISPLAY = origDisplay;
+      else delete process.env.DISPLAY;
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

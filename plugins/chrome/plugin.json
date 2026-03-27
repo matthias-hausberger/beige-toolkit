@@ -22,7 +22,7 @@
     ]
   },
   "defaultConfig": {
-    "headless": true
+    "headless": "fallback"
   },
   "configSchema": {
     "type": "object",
@@ -32,8 +32,8 @@
         "description": "Launch in slim mode \u2014 only navigate, evaluate, screenshot tools are available. Much lower token usage. Default: false."
       },
       "headless": {
-        "type": "boolean",
-        "description": "Launch Chrome headlessly (no visible window). Default: false."
+        "type": "boolean | \"fallback\"",
+        "description": "Headless mode. true = always headless; false = always use a display; \"fallback\" = use a display if one exists (X11 socket present, works with TigerVNC and other virtual displays), otherwise start headless automatically. Default: \"fallback\"."
       },
       "viewport": {
         "type": "string",
