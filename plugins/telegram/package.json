@@ -4,5 +4,8 @@
   "type": "module",
   "dependencies": {
     "grammy": "^1.35.0"
+  },
+  "peerDependencies": {
+    "@matthias-hausberger/beige": "*"
   }
 }

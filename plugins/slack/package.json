@@ -1,5 +1,8 @@
 {
   "name": "@beige/tool-slack",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "peerDependencies": {
+    "@matthias-hausberger/beige": "*"
+  }
 }

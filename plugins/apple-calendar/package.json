@@ -1,5 +1,8 @@
 {
   "name": "@beige/tool-apple-calendar",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "peerDependencies": {
+    "@matthias-hausberger/beige": "*"
+  }
 }
