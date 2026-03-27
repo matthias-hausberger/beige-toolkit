@@ -87,6 +87,12 @@ interface SessionContext {
   agentName?: string;
   agentDir?: string;
   workspaceDir?: string;
+  /**
+   * Relative working directory from workspace root (e.g. "repos/myrepo").
+   * Populated by the tool-client from the container's cwd when the agent
+   * invokes git from a subdirectory of /workspace (e.g. via cd+exec).
+   */
+  cwd?: string;
 }
 
 export interface GitAuthConfig {
@@ -519,6 +525,15 @@ export const defaultExecutor: Executor = (args, env, cwd) =>
     delete cleanEnv.GIT_SSH_COMMAND; // we set our own below
     delete cleanEnv.GIT_ASKPASS;     // we set our own below
 
+    // Prevent git from reading the operator's system or global git config
+    // (~/.gitconfig). Without this, git finds the gateway operator's
+    // credential helper (e.g. macOS Keychain) via HOME and silently
+    // authenticates as the operator instead of the configured agent identity.
+    // GIT_CONFIG_NOSYSTEM suppresses /etc/gitconfig; GIT_CONFIG_GLOBAL
+    // (git ≥ 2.32) redirects the per-user config to /dev/null.
+    cleanEnv.GIT_CONFIG_NOSYSTEM = "1";
+    cleanEnv.GIT_CONFIG_GLOBAL = "/dev/null";
+
     // Apply our computed auth/identity env on top
     Object.assign(cleanEnv, env);
 
@@ -663,18 +678,37 @@ export function createHandler(
 
     // ── Resolve working directory ────────────────────────────────────────────
     // The workspace dir on the gateway host is the same directory that is
-    // mounted at /workspace inside the container. git -C <workspaceDir>
-    // scopes every operation to the agent's repo.
-    const cwd = sessionContext?.workspaceDir ?? process.cwd();
+    // mounted at /workspace inside the container.
+    //
+    // If the agent invoked git from a subdirectory of /workspace (e.g. via
+    // `cd /workspace/myrepo && git status`), the tool-client captures the
+    // container's cwd as a relative path ("myrepo") and the gateway puts it
+    // in sessionContext.cwd. We join it with workspaceDir so that git runs
+    // in the correct subdirectory on the host — this is essential for agents
+    // that clone repos into the workspace and then operate inside them.
+    const workspaceRoot = sessionContext?.workspaceDir ?? process.cwd();
+    const cwd = sessionContext?.cwd
+      ? join(workspaceRoot, sessionContext.cwd)
+      : workspaceRoot;
 
     // ── Build auth env ───────────────────────────────────────────────────────
     const { env: authEnv, cleanup } = buildAuthEnv(config, sessionContext ?? {});
+
+    // ── Build ceiling env ────────────────────────────────────────────────────
+    // Prevent git from traversing up past the workspace into a parent git
+    // repository (e.g. when the workspace lives inside a pnpm monorepo or
+    // any other git-tracked parent directory on the gateway host).
+    // GIT_CEILING_DIRECTORIES tells git to stop its .git search at or above
+    // the listed paths, so only repos rooted inside the workspace are found.
+    const ceilingEnv: Record<string, string> = {
+      GIT_CEILING_DIRECTORIES: cwd,
+    };
 
     // ── Build identity env ───────────────────────────────────────────────────
     const identityEnv = buildIdentityEnv(identityConfig);
 
     // ── Merge all env additions ──────────────────────────────────────────────
-    const env = { ...authEnv, ...identityEnv };
+    const env = { ...authEnv, ...identityEnv, ...ceilingEnv };
 
     // ── Execute ──────────────────────────────────────────────────────────────
     let result: ExecResult;
