@@ -4,9 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@matthias-hausberger/beige': file:../beige
-
 importers:
 
   .:
@@ -19,8 +16,8 @@ importers:
         version: 1.41.1
     devDependencies:
       '@matthias-hausberger/beige':
-        specifier: file:../beige
-        version: file:../beige(ws@8.20.0)(zod@4.3.6)
+        specifier: 1.0.0-beta3
+        version: 1.0.0-beta3(ws@8.20.0)(zod@4.3.6)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -324,8 +321,8 @@ packages:
     resolution: {integrity: sha512-eZ1P9QRKHp78hwx+lITr/mujZqe+eCwL/bOS9vXXkFP070RW4VYum0j7TJ4BrFEH/nNkXRS1tYCXYU05une1bA==}
     engines: {node: '>=20.0.0'}
 
-  '@matthias-hausberger/beige@file:../beige':
-    resolution: {directory: ../beige, type: directory}
+  '@matthias-hausberger/beige@1.0.0-beta3':
+    resolution: {integrity: sha512-a024La7ztX06VJKeRWwFe/uywhmSVob+OetfWrt719EQXe6pl/ugvAqYyhSBZ8lFDx8Z1eXyrTslaCTj7tPjpA==}
     engines: {node: '>=22.0.0'}
     hasBin: true
 
@@ -2266,7 +2263,7 @@ snapshots:
     optionalDependencies:
       koffi: 2.15.2
 
-  '@matthias-hausberger/beige@file:../beige(ws@8.20.0)(zod@4.3.6)':
+  '@matthias-hausberger/beige@1.0.0-beta3(ws@8.20.0)(zod@4.3.6)':
     dependencies:
       '@mariozechner/pi-ai': 0.56.3(ws@8.20.0)(zod@4.3.6)
       '@mariozechner/pi-coding-agent': 0.56.3(ws@8.20.0)(zod@4.3.6)

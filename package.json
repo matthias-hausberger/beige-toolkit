@@ -26,13 +26,8 @@
     "cron-parser": "^5.5.0",
     "grammy": "^1.35.0"
   },
-  "pnpm": {
-    "overrides": {
-      "@matthias-hausberger/beige": "file:../beige"
-    }
-  },
   "devDependencies": {
-    "@matthias-hausberger/beige": "^0.2.0",
+    "@matthias-hausberger/beige": "1.0.0-beta3",
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
     "vitest": "^4.0.18"
