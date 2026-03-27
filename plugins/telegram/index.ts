@@ -560,6 +560,7 @@ export function createPlugin(
 
     await grammyCtx.reply(
       `<b>Session Status</b>\n\n` +
+        `Session ID: <code>${escapeHtml(sessionKey)}</code>\n` +
         `Agent: <code>${escapeHtml(agentName)}</code>\n` +
         `Chat: <code>${chatId}${threadId ? ` / Thread: ${threadId}` : ""}</code>\n` +
         `Model: ${modelLine}\n\n` +
