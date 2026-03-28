@@ -412,32 +412,33 @@ describe("force-push protection", () => {
     );
     const result = await handler(["push", "--force", "origin", "main"], undefined, SESSION);
     expect(result.exitCode).toBe(0);
-    expect(calls).toHaveLength(1);
+    // Pre-flight fires "remote get-url origin" (1 call) then the actual push (1 call).
+    expect(calls).toHaveLength(2);
+    expect(calls[1].args).toContain("push");
   });
 });
 
 // ---------------------------------------------------------------------------
-// createHandler — allowedRemotes (clone)
+// createHandler — HTTPS clone blocking
 // ---------------------------------------------------------------------------
 
-describe("allowedRemotes", () => {
-  it("blocks clone to non-allowed remote", async () => {
-    const { handler, calls } = makeHandler({
-      allowedRemotes: ["github.com/myorg/*"],
-    });
+describe("HTTPS clone blocking", () => {
+  it("blocks HTTPS clone when auth mode is ssh and no token", async () => {
+    const { handler, calls } = makeHandler({ auth: { mode: "ssh" } });
     const result = await handler(["clone", "https://github.com/evil/steal.git"]);
     expect(result.exitCode).toBe(1);
-    expect(result.output).toContain("does not match any allowed remote pattern");
+    expect(result.output).toContain("Auth mismatch");
+    expect(result.output).toContain("git clone git@github.com:evil/steal.git");
     expect(calls).toHaveLength(0);
   });
 
-  it("allows clone to matching remote", async () => {
+  it("allows SSH clone with ssh auth mode", async () => {
     const { handler, calls } = makeHandler(
-      { allowedRemotes: ["github.com/myorg/*"] },
+      { auth: { mode: "ssh" } },
       { stdout: "Cloning..." }
     );
     const result = await handler(
-      ["clone", "https://github.com/myorg/myrepo.git"],
+      ["clone", "git@github.com:myorg/myrepo.git"],
       undefined,
       SESSION
     );
@@ -445,10 +446,13 @@ describe("allowedRemotes", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("allows all remotes when allowedRemotes is not set", async () => {
-    const { handler, calls } = makeHandler({}, { stdout: "Cloning..." });
+  it("allows HTTPS clone when token is configured", async () => {
+    const { handler, calls } = makeHandler(
+      { auth: { mode: "ssh", token: "ghp_test" } },
+      { stdout: "Cloning..." }
+    );
     const result = await handler(
-      ["clone", "https://github.com/anyone/anything.git"],
+      ["clone", "https://github.com/myorg/myrepo.git"],
       undefined,
       SESSION
     );
