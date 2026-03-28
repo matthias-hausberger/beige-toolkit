@@ -1,5 +1,4 @@
 import { spawn } from "child_process";
-import { existsSync } from "fs";
 import { join } from "path";
 import { resolveBin } from "../_shared/resolve-bin.ts";
 
@@ -254,17 +253,6 @@ export function createHandler(
         output: "Permission denied: 'repo delete' is permanently blocked. Repository deletion is not permitted through this tool.",
         exitCode: 1,
       };
-    }
-
-    // Validation for pr create — ensure we're in a git repository.
-    // This helps provide a clear error message when gh fails to detect the branch.
-    if (subcommand === "pr" && rest[0] === "create") {
-      if (cwd && !existsSync(joinPath(cwd, ".git"))) {
-        return {
-          output: `No git repository found in working directory.\n\nPlease clone a repository first:\n  git clone <url> <directory>\n  cd <directory>\n\nThen you can create a PR:\n  github pr create --title \"feat: ...\" --body \"...\"`,
-          exitCode: 1,
-        };
-      }
     }
 
     const result = await executor([subcommand, ...rest], token, cwd);
