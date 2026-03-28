@@ -8,33 +8,36 @@ Run git commands in your workspace. All commands operate on `/workspace` — the
 
 Your `/workspace` inside the container is a bind mount of the host's `~/.beige/agents/<name>/workspace/`. The git tool executes on the host with that directory as its working directory.
 
-### ✅ DO: Use Relative Paths (or cd first)
+### ✅ DO: Use Relative Paths with -C
+
+The cleanest pattern. `-C <relative-path>` is relative to the workspace root on
+the gateway host — the same directory mounted at `/workspace` in the container:
 
 ```sh
-# From the workspace root, use relative paths:
-git status
-git add src/foo.ts
-git commit -m "feat: add feature"
-git -C myrepo status          # ✅ relative path to subdirectory
-git log myrepo
-
-# Or cd into the directory first — the tool client captures your cwd:
-cd /workspace/myrepo
-git status                    # ✅ runs in myrepo on the host
-git add .
-git push
+git -C myrepo status
+git -C myrepo add .
+git -C myrepo commit -m "feat: add feature"
+git -C myrepo push origin main
+git -C myrepo log --oneline -10
 ```
 
-### ❌ DO NOT: Use Absolute Container Paths
+### ❌ DO NOT: Use Absolute Container Paths with -C
 
 ```sh
-# These will FAIL because /workspace/... doesn't exist on the host:
-git status /workspace/myrepo          # ❌ WRONG
-git add /workspace/myrepo/src/foo.ts  # ❌ WRONG
-git -C /workspace/myrepo status       # ❌ WRONG
+# WRONG — /workspace doesn't exist on the gateway host:
+git -C /workspace/myrepo status       # ❌ "cannot change to '/workspace/myrepo'"
+git -C /workspace/myrepo push         # ❌ same
 ```
 
-The host has no `/workspace` directory — that path only exists inside your container.
+The gateway host has no `/workspace` directory. Strip the `/workspace/` prefix
+and pass only the relative part: `myrepo`, not `/workspace/myrepo`.
+
+### ❌ DO NOT: Use System Git (/usr/bin/git) via exec
+
+The container does not have git installed. The `git` command on your PATH
+(`/tools/bin/git`) is the gateway tool wrapper — it must be invoked as a
+**tool call**, not via `exec`. Calling it via exec will fail because the
+tool-client cannot communicate with the gateway socket from within exec.
 
 ## ⚠️ Critical: Always Clone with SSH
 
@@ -53,18 +56,16 @@ If you accidentally try to clone via HTTPS with SSH-only auth, the tool will blo
 ### Working with Subdirectories
 
 ```sh
-# Clone creates /workspace/myrepo
+# Clone creates /workspace/myrepo (relative name "myrepo" on the host)
 git clone git@github.com:myorg/myrepo.git myrepo
 
-# Work relative to workspace root:
-git -C myrepo status          # ✅ Works
-git add myrepo/src/foo.ts     # ✅ Works
-
-# Or cd first:
-cd /workspace/myrepo
-git status                    # ✅ Works
-git add .
-git push
+# All subsequent operations use -C with the relative path:
+git -C myrepo status
+git -C myrepo add .
+git -C myrepo add src/foo.ts
+git -C myrepo commit -m "feat: add feature"
+git -C myrepo push origin main
+git -C myrepo log --oneline -10
 ```
 
 ## Calling Convention
@@ -75,70 +76,70 @@ git push
 
 ## Common Workflows
 
+All examples use `-C myrepo` — replace `myrepo` with your repo's directory name
+relative to the workspace root (e.g. `keyflare`, `beige-toolkit`, `projects/my-app`).
+
 ### Clone a repository
 
 ```sh
-# Clone into a subdirectory (SSH — always use this form)
+# Always use SSH URLs:
 git clone git@github.com:myorg/myrepo.git myrepo
-
-# Clone into workspace root
-git clone git@github.com:myorg/myrepo.git .
 ```
 
 ### Check status and stage files
 
 ```sh
-git status
-git add .
-git add src/foo.ts tests/foo.test.ts
+git -C myrepo status
+git -C myrepo add .
+git -C myrepo add src/foo.ts tests/foo.test.ts
 ```
 
 ### Commit
 
 ```sh
-git commit -m "feat: add new feature"
-git commit -m "fix: correct edge case in parser"
+git -C myrepo commit -m "feat: add new feature"
+git -C myrepo commit -m "fix: correct edge case in parser"
 ```
 
 ### Push and pull
 
 ```sh
-git push origin main
-git pull
-git pull origin main
+git -C myrepo push origin main
+git -C myrepo pull
+git -C myrepo pull origin main
 ```
 
 ### Branches
 
 ```sh
-git checkout -b feat/my-feature
-git branch -a
-git checkout main
+git -C myrepo checkout -b feat/my-feature
+git -C myrepo branch -a
+git -C myrepo checkout main
 ```
 
 ### View history and diffs
 
 ```sh
-git log --oneline
-git log --oneline -20
-git diff
-git diff --staged
-git show HEAD
+git -C myrepo log --oneline
+git -C myrepo log --oneline -20
+git -C myrepo diff
+git -C myrepo diff --staged
+git -C myrepo show HEAD
 ```
 
 ### Fetch and rebase
 
 ```sh
-git fetch origin
-git rebase origin/main
+git -C myrepo fetch origin
+git -C myrepo rebase origin/main
 ```
 
 ### Stash
 
 ```sh
-git stash push
-git stash pop
-git stash list
+git -C myrepo stash push
+git -C myrepo stash pop
+git -C myrepo stash list
 ```
 
 ## Permission Errors
