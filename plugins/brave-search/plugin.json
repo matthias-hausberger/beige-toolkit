@@ -1,0 +1,35 @@
+{
+  "name": "brave-search",
+  "description": "Search the web using the Brave Search API. Provides fast, privacy-focused web search with configurable result limits. Requires a Brave Search API key.",
+  "commands": [
+    "search <query>                                — Search the web with a query",
+    "search <query> --count <n>                    — Limit results (1-20, default: 10)",
+    "search <query> --country <code>               — Country-specific results (e.g., US, DE, GB)",
+    "search <query> --offset <n>                   — Pagination offset (default: 0)"
+  ],
+  "provides": {
+    "tools": [
+      "brave-search"
+    ]
+  },
+  "defaultConfig": {
+    "apiKey": ""
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "apiKey": {
+        "type": "string",
+        "description": "Brave Search API key. Get one from https://brave.com/search/api/"
+      },
+      "maxResults": {
+        "type": "number",
+        "description": "Default maximum number of results (1-20). Default: 5"
+      },
+      "timeoutSeconds": {
+        "type": "number",
+        "description": "Request timeout in seconds. Default: 30"
+      }
+    }
+  }
+}
