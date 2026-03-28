@@ -21,6 +21,18 @@ import type {
   SendMessageOptions,
   ToolResult,
 } from "@matthias-hausberger/beige";
+
+// Extend the ChannelAdapter interface to include sendPhoto support
+declare module "@matthias-hausberger/beige" {
+  interface ChannelAdapter {
+    sendPhoto?(
+      chatId: string,
+      threadId: string | undefined,
+      photoPath: string,
+      caption?: string
+    ): Promise<void>;
+  }
+}
 import {
   formatChannelError,
   isAllModelsExhausted,
@@ -848,6 +860,29 @@ export function createPlugin(
         });
       }
     },
+
+    async sendPhoto(
+      chatId: string,
+      threadId: string | undefined,
+      photoPath: string,
+      caption?: string
+    ): Promise<void> {
+      // Check if photoPath is a URL or a local file
+      if (photoPath.startsWith('http://') || photoPath.startsWith('https://')) {
+        // Send photo by URL
+        await bot.api.sendPhoto(chatId, photoPath, {
+          caption: caption,
+          ...(threadId ? { message_thread_id: parseInt(threadId, 10) } : {}),
+        });
+      } else {
+        // Send photo from local file
+        // GrammY's InputFile can handle local file paths
+        await bot.api.sendPhoto(chatId, photoPath, {
+          caption: caption,
+          ...(threadId ? { message_thread_id: parseInt(threadId, 10) } : {}),
+        });
+      }
+    },
   };
 
   // ── Tool handler: "telegram" ───────────────────────────────────────────
@@ -861,7 +896,9 @@ export function createPlugin(
         output:
           "Usage:\n" +
           "  telegram sendMessage <chatId> <text>\n" +
-          "  telegram sendMessage <chatId> --thread <threadId> <text>",
+          "  telegram sendMessage <chatId> --thread <threadId> <text>\n" +
+          "  telegram sendPhoto <chatId> <photoPath> [caption]\n" +
+          "  telegram sendPhoto <chatId> --thread <threadId> <photoPath> [caption]",
         exitCode: 1,
       };
     }
@@ -908,9 +945,53 @@ export function createPlugin(
         }
       }
 
+      case "sendPhoto":
+      case "send_photo": {
+        if (args.length < 3) {
+          return {
+            output: "Usage: telegram sendPhoto <chatId> <photoPath> [caption]\n       telegram sendPhoto <chatId> --thread <threadId> <photoPath> [caption]",
+            exitCode: 1,
+          };
+        }
+
+        const chatId = args[1];
+        let threadId: string | undefined;
+        let photoPathIndex = 2;
+        let caption: string | undefined;
+
+        // Parse --thread option
+        if (args[2] === "--thread" && args.length >= 5) {
+          threadId = args[3];
+          photoPathIndex = 4;
+        }
+
+        const photoPath = args[photoPathIndex];
+        if (!photoPath) {
+          return { output: "Error: photo path cannot be empty", exitCode: 1 };
+        }
+
+        // Extract caption if provided (everything after the photo path)
+        if (args.length > photoPathIndex + 1) {
+          caption = args.slice(photoPathIndex + 1).join(" ");
+        }
+
+        try {
+          await channelAdapter.sendPhoto(chatId, threadId, photoPath, caption);
+          return {
+            output: `Photo sent to chat ${chatId}${threadId ? ` (thread ${threadId})` : ""}`,
+            exitCode: 0,
+          };
+        } catch (err) {
+          return {
+            output: `Failed to send photo: ${err instanceof Error ? err.message : err}`,
+            exitCode: 1,
+          };
+        }
+      }
+
       default:
         return {
-          output: `Unknown subcommand: ${subcommand}\nAvailable: sendMessage`,
+          output: `Unknown subcommand: ${subcommand}\nAvailable: sendMessage, sendPhoto`,
           exitCode: 1,
         };
     }
@@ -927,10 +1008,12 @@ export function createPlugin(
       reg.tool({
         name: "telegram",
         description:
-          "Send messages to Telegram chats. Use this to proactively notify users.",
+          "Send messages and photos to Telegram chats. Use this to proactively notify users.",
         commands: [
-          "sendMessage <chatId> <text>               — Send a message to a chat",
-          "sendMessage <chatId> --thread <id> <text>  — Send to a specific thread",
+          "sendMessage <chatId> <text>                  — Send a message to a chat",
+          "sendMessage <chatId> --thread <id> <text>     — Send to a specific thread",
+          "sendPhoto <chatId> <photoPath> [caption]      — Send a photo to a chat",
+          "sendPhoto <chatId> --thread <id> <photoPath> [caption] — Send photo to thread",
         ],
         handler: telegramToolHandler,
       });
