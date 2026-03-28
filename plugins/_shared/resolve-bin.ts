@@ -11,7 +11,7 @@
  *   3. Falls back to the bare name (spawn will fail with a clear ENOENT)
  */
 
-import { execFileSync } from "child_process";
+import { execFileSync } from "node:child_process";
 
 /**
  * Common install paths to probe when `which` fails.

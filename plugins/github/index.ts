@@ -1,5 +1,5 @@
-import { spawn } from "child_process";
-import { join } from "path";
+import { spawn } from "node:child_process";
+import { join } from "node:path";
 import { resolveBin } from "../_shared/resolve-bin.ts";
 
 // ---------------------------------------------------------------------------
@@ -104,16 +104,16 @@ function resolveAllowedCommands(config: Record<string, unknown>): Set<string> {
 }
 
 /**
- * Default executor: spawns the real gh CLI and returns its output.
+ * Default executor: spawns real gh CLI and returns its output.
  *
  * When a token is provided it is passed via the GH_TOKEN environment variable,
  * which gh (and the underlying git credential helper) recognises for both
  * classic personal access tokens (ghp_…) and fine-grained PATs (github_pat_…).
- * This overrides any token that may already be stored in ~/.config/gh/ so the
- * agent-specific token always takes precedence.
+ * This overrides any token that may already be stored in ~/.config/gh/ so that
+ * the agent-specific token always takes precedence.
  *
- * When no token is provided the process environment is inherited as-is, so
- * existing gh auth (via `gh auth login`) continues to work.
+ * When no token is configured the process environment is inherited as-is, so
+ * any existing gh auth (via `gh auth login`) continues to work.
  *
  * The cwd parameter sets the working directory for the gh subprocess. This is
  * critical for commands like `pr create` that read .git/config to discover the
@@ -121,7 +121,7 @@ function resolveAllowedCommands(config: Record<string, unknown>): Set<string> {
  * host (sessionContext.workspaceDir).
  */
 /**
- * Resolve the full path to the gh binary.
+ * Resolve full path to gh binary.
  *
  * Priority:
  *   1. Explicit binPath from config
@@ -178,10 +178,10 @@ export const defaultGhExecutor: GhExecutor = createGhExecutor("gh");
  *
  * Authentication:
  *   - When `config.token` is set it is forwarded to gh via GH_TOKEN, taking
- *     precedence over any locally stored credential.  Both classic personal
+ *     precedence over any locally stored credential. Both classic personal
  *     access tokens (ghp_…) and fine-grained PATs (github_pat_…) are accepted
  *     by gh without any special handling on our side.
- *   - When no token is configured, the tool falls back to whatever gh auth is
+ *   - When no token is configured the tool falls back to whatever gh auth is
  *     already present on the host (~/.config/gh/, GITHUB_TOKEN, etc.).
  *
  * Access control: allowedCommands and deniedCommands restrict which top-level
@@ -263,7 +263,7 @@ export function createHandler(
     // configured for SSH-only authentication.
     //
     // We can't change gh's behaviour here, so we surface a clear warning so
-    // the agent can use `git clone git@github.com:...` instead.
+    // that agents can use `git clone git@github.com:...` instead.
     if (subcommand === "repo" && rest[0] === "clone") {
       const repoArg = rest[1]; // e.g. "myorg/myrepo" or a full URL
       // Only warn for shorthand owner/repo form — if a full SSH URL is passed
@@ -303,33 +303,459 @@ export function createHandler(
   };
 }
 
-// ── Plugin adapter ───────────────────────────────────────────────────────────
-// Wraps the legacy createHandler as a plugin for the v2 plugin system.
+// ── GitHub Polling Channel Adapter ──────────────────────────────────────
+// Adds GitHub notification polling capability to the GitHub plugin.
 
 import type {
   PluginInstance,
   PluginContext,
   PluginRegistrar,
+  ChannelAdapter,
 } from "@matthias-hausberger/beige";
-import { readFileSync } from "fs";
-import { join as joinPath } from "path";
+import { readFileSync } from "node:fs";
+import { join as joinPath } from "node:path";
 
+/**
+ * GitHub Polling Configuration
+ */
+interface GitHubPollingConfig {
+  enabled: boolean;
+  username: string;
+  pollIntervalSeconds: number;
+  respondTo: "mentions" | "all" | "watched";
+  includeFullThread: boolean;
+  watchedRepos?: string[];
+  watchedPrs?: number[];
+  agentMapping: { default: string; [repo: string]: string };
+}
+
+/**
+ * GitHub Notification Type
+ */
+interface GitHubNotification {
+  id: string;
+  unread: boolean;
+  reason: string;
+  updated_at: string;
+  subject: {
+    title: string;
+    type: string;
+    url: string;
+    latest_comment_url?: string;
+  };
+  repository: {
+    full_name: string;
+    html_url: string;
+  };
+}
+
+/**
+ * Issue Comment Type
+ */
+interface IssueComment {
+  id: number;
+  body: string;
+  html_url: string;
+  user: {
+    login: string;
+  };
+  created_at: string;
+}
+
+/**
+ * Polling State
+ */
+interface PollingState {
+  timer: NodeJS.Timeout | null;
+  lastCheckTimestamp: string;
+  seenNotificationIds: Set<string>;
+}
+
+/**
+ * Create GitHub plugin with polling channel adapter
+ */
 export function createPlugin(
   config: Record<string, unknown>,
-  _ctx: PluginContext
+  ctx: PluginContext
 ): PluginInstance {
   const manifestPath = joinPath(import.meta.dirname!, "plugin.json");
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   const handler = createHandler(config);
+
+  // Extract polling configuration
+  const pollingConfig = (config.polling || {}) as GitHubPollingConfig;
+
+  // Set defaults
+  pollingConfig.enabled = pollingConfig.enabled ?? false;
+  pollingConfig.pollIntervalSeconds = pollingConfig.pollIntervalSeconds ?? 60;
+  pollingConfig.respondTo = (pollingConfig.respondTo as "mentions" | "all" | "watched") ?? "mentions";
+  pollingConfig.includeFullThread = pollingConfig.includeFullThread ?? true;
+  pollingConfig.agentMapping = pollingConfig.agentMapping ?? { default: "assistant" };
+
+  // Polling state
+  const state: PollingState = {
+    timer: null,
+    lastCheckTimestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+    seenNotificationIds: new Set(),
+  };
+
+  // Resolve gh binary
+  const ghBin = resolveBin(config);
+
+  // ---------------------------------------------------------------------------
+  // Helper: Execute gh command
+  // ---------------------------------------------------------------------------
+
+  async function execGh(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    return new Promise((resolve) => {
+      const token = typeof config.token === "string" && config.token.trim()
+        ? config.token.trim()
+        : undefined;
+      const env = token ? { ...process.env, GH_TOKEN: token } : process.env;
+
+      const proc = spawn(ghBin, args, {
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      proc.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString();
+      });
+
+      proc.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+
+      proc.on("close", (code) => {
+        resolve({ stdout, stderr, exitCode: code ?? 1 });
+      });
+
+      proc.on("error", (err) => {
+        resolve({
+          stdout: "",
+          stderr: `Failed to spawn gh (${ghBin}): ${err.message}`,
+          exitCode: 1,
+        });
+      });
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helper: Fetch notifications since timestamp
+  // ---------------------------------------------------------------------------
+
+  async function fetchNotifications(since: string): Promise<GitHubNotification[]> {
+    const result = await execGh([
+      "api",
+      "notifications",
+      "--paginate",
+      "--jq",
+      ".[]",
+      "-f",
+      `since=${since}`,
+    ]);
+
+    if (result.exitCode !== 0) {
+      throw new Error(`Failed to fetch notifications: ${result.stderr}`);
+    }
+
+    const lines = result.stdout.trim().split("\n").filter((l) => l);
+    return lines.map((line) => JSON.parse(line));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helper: Fetch issue comment details
+  // ---------------------------------------------------------------------------
+
+  async function fetchIssueComment(url: string): Promise<IssueComment | null> {
+    const result = await execGh(["api", "--jq", ".", url]);
+
+    if (result.exitCode !== 0) {
+      ctx.log.warn(`Failed to fetch issue comment from ${url}: ${result.stderr}`);
+      return null;
+    }
+
+    return JSON.parse(result.stdout);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helper: Check if notification is relevant based on config
+  // ---------------------------------------------------------------------------
+
+  async function isNotificationRelevant(
+    notif: GitHubNotification
+  ): Promise<boolean> {
+    const repo = notif.repository.full_name;
+
+    // Check if repo is in watched list (if configured)
+    if (pollingConfig.respondTo === "watched" && pollingConfig.watchedRepos?.length > 0) {
+      if (!pollingConfig.watchedRepos.includes(repo)) {
+        return false;
+      }
+    }
+
+    // Extract issue/PR number from URL
+    const match = notif.subject.url.match(/\/(issues|pull)\/(\d+)$/);
+    if (!match) {
+      return false;
+    }
+    const number = parseInt(match[2], 10);
+
+    // Check if PR/issue is in watched list (if configured)
+    if (pollingConfig.watchedPrs?.length > 0 && !pollingConfig.watchedPrs.includes(number)) {
+      return false;
+    }
+
+    // Filter by respondTo mode
+    switch (pollingConfig.respondTo) {
+      case "all":
+        // All notifications pass through
+        return true;
+
+      case "watched":
+        // Only notifications from watched repos/PRs
+        if (pollingConfig.watchedRepos?.length > 0 || pollingConfig.watchedPrs?.length > 0) {
+          return true;
+        }
+        // If no watched repos/PRs, fall back to mentions
+        return (
+          notif.reason === "mention" ||
+          notif.reason === "team_mention" ||
+          notif.reason === "review_requested"
+        );
+
+      case "mentions":
+      default:
+        // Only mentions and review requests
+        if (notif.reason === "mention" || notif.reason === "team_mention" || notif.reason === "review_requested") {
+          return true;
+        }
+
+        // For issue comments, check if @mentioned in body
+        if (notif.subject.type === "IssueComment" && notif.subject.latest_comment_url) {
+          const comment = await fetchIssueComment(notif.subject.latest_comment_url);
+          if (comment?.body?.includes(`@${pollingConfig.username}`)) {
+            return true;
+          }
+        }
+
+        // For PR comments, check if @mentioned in body
+        if (notif.subject.type === "PullRequestReviewComment" && notif.subject.latest_comment_url) {
+          const comment = await fetchIssueComment(notif.subject.latest_comment_url);
+          if (comment?.body?.includes(`@${pollingConfig.username}`)) {
+            return true;
+          }
+        }
+
+        return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helper: Resolve agent name for a repo
+  // ---------------------------------------------------------------------------
+
+  function resolveAgent(repo: string): string {
+    return pollingConfig.agentMapping[repo] ?? pollingConfig.agentMapping.default;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helper: Build session key from notification
+  // ---------------------------------------------------------------------------
+
+  function getSessionKey(notif: GitHubNotification): string {
+    const match = notif.subject.url.match(/\/repos\/([^\/]+)\/([^\/]+)\/(issues|pull)\/(\d+)$/);
+    if (match) {
+      const owner = match[1];
+      const repo = match[2];
+      const type = match[3]; // "issues" or "pull"
+      const number = match[4];
+      return `github:${owner}/${repo}:${type}/${number}`;
+    }
+    return `github:${notif.id}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helper: Build context for agent
+  // ---------------------------------------------------------------------------
+
+  async function buildEventContext(notif: GitHubNotification): Promise<string> {
+    const lines: string[] = [
+      `GitHub Event: ${notif.subject.type}`,
+      ``,
+      `Repository: ${notif.repository.full_name}`,
+      `URL: ${notif.repository.html_url}`,
+      ``,
+      `Subject: ${notif.subject.title}`,
+      `Subject Type: ${notif.subject.type}`,
+      `Subject URL: ${notif.subject.url}`,
+      ``,
+      `Notification Reason: ${notif.reason}`,
+      `Last Updated: ${notif.updated_at}`,
+      ``,
+    ];
+
+    lines.push(
+      `---`,
+      ``,
+      `You can reply to this by using the GitHub tool:`,
+      `- Comment on issue/PR: github issue comment <number> <comment>`,
+      `- Create issue: github issue create --repo <repo> --title <title> --body <body>`,
+      `- Merge PR: github pr merge <number>`,
+      ``,
+      `What would you like to do?`,
+    );
+
+    return lines.join("\n");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Main polling loop
+  // ---------------------------------------------------------------------------
+
+  async function pollGitHubNotifications(): Promise<void> {
+    try {
+      ctx.log.debug("Polling GitHub notifications...");
+
+      // Fetch notifications since last check
+      const notifications = await fetchNotifications(state.lastCheckTimestamp);
+
+      if (notifications.length === 0) {
+        ctx.log.debug("No new notifications");
+        return;
+      }
+
+      ctx.log.info(`Found ${notifications.length} new notifications`);
+
+      // Deduplicate and filter
+      const relevant: GitHubNotification[] = [];
+      for (const notif of notifications) {
+        if (state.seenNotificationIds.has(notif.id)) {
+          continue;
+        }
+        state.seenNotificationIds.add(notif.id);
+
+        const isRelevant = await isNotificationRelevant(notif);
+        if (isRelevant) {
+          relevant.push(notif);
+        }
+      }
+
+      ctx.log.info(`${relevant.length} relevant notifications after filtering`);
+
+      // Group by session key
+      const grouped = new Map<string, GitHubNotification[]>();
+      for (const notif of relevant) {
+        const sessionKey = getSessionKey(notif);
+        if (!grouped.has(sessionKey)) {
+          grouped.set(sessionKey, []);
+        }
+        grouped.get(sessionKey)!.push(notif);
+      }
+
+      // Route each group to agent
+      for (const [sessionKey, events] of grouped.entries()) {
+        await routeEventGroup(sessionKey, events);
+      }
+
+      // Update last check timestamp
+      state.lastCheckTimestamp = new Date().toISOString();
+
+    } catch (err) {
+      ctx.log.error(`GitHub polling error: ${err}`);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Route grouped events to agent
+  // ---------------------------------------------------------------------------
+
+  async function routeEventGroup(
+    sessionKey: string,
+    events: GitHubNotification[]
+  ): Promise<void> {
+    const repo = events[0].repository.full_name;
+    const agentName = resolveAgent(repo);
+
+    // Build combined context for all events
+    const contexts: string[] = [];
+    for (const event of events) {
+      const context = await buildEventContext(event);
+      contexts.push(context);
+    }
+
+    const combinedContext = contexts.join("\n\n" + "=".repeat(80) + "\n\n");
+
+    // Check if session is active (steer) or create new
+    if (ctx.isSessionActive(sessionKey)) {
+      ctx.log.info(`Steering active session: ${sessionKey}`);
+      await ctx.steerSession(sessionKey, combinedContext);
+    } else {
+      ctx.log.info(`Creating new session: ${sessionKey}`);
+      await ctx.prompt(sessionKey, agentName, combinedContext);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Channel adapter (no proactive messaging)
+  // ---------------------------------------------------------------------------
+
+  const channelAdapter: ChannelAdapter = {
+    supportsMessaging(): boolean {
+      return false; // Polling doesn't support proactive messaging
+    },
+    async sendMessage(): Promise<void> {
+      throw new Error("GitHub polling channel does not support proactive messaging");
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // Plugin instance
+  // ---------------------------------------------------------------------------
 
   return {
     register(reg: PluginRegistrar): void {
+      // Register tool
       reg.tool({
         name: manifest.name,
         description: manifest.description,
         commands: manifest.commands,
         handler,
       });
+
+      // Register channel adapter
+      reg.channel(channelAdapter);
+    },
+
+    async start(): Promise<void> {
+      if (!pollingConfig.enabled) {
+        ctx.log.info("GitHub polling is disabled (polling.enabled: false in config)");
+        return;
+      }
+
+      ctx.log.info("Starting GitHub polling...");
+
+      const pollInterval = pollingConfig.pollIntervalSeconds * 1000;
+
+      // Start polling loop
+      state.timer = setInterval(() => {
+        pollGitHubNotifications();
+      }, pollInterval);
+
+      ctx.log.info(`GitHub polling started (interval: ${pollingConfig.pollIntervalSeconds}s)`);
+      ctx.log.info(`Respond to: ${pollingConfig.respondTo}`);
+      ctx.log.info(`Include full thread: ${pollingConfig.includeFullThread}`);
+    },
+
+    async stop(): Promise<void> {
+      if (state.timer) {
+        clearInterval(state.timer);
+        state.timer = null;
+      }
+      ctx.log.info("GitHub polling stopped");
     },
   };
 }
