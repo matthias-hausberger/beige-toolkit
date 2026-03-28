@@ -25,7 +25,7 @@ import type {
 // Extend the ChannelAdapter interface to include sendPhoto support
 declare module "@matthias-hausberger/beige" {
   interface ChannelAdapter {
-    sendPhoto?(
+    sendPhoto(
       chatId: string,
       threadId: string | undefined,
       photoPath: string,
