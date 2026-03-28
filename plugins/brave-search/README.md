@@ -76,29 +76,29 @@ No `apiKey` in config needed — the plugin picks up `BRAVE_API_KEY` automatical
 
 ## Usage
 
-The plugin provides a `brave` tool with a single `search` subcommand:
+The plugin provides a `brave-search` tool with a single `search` subcommand:
 
 ```bash
-brave search <query>
-brave search <query> --count <n>
-brave search <query> --country <code>
-brave search <query> --offset <n>
+brave-search search <query>
+brave-search search <query> --count <n>
+brave-search search <query> --country <code>
+brave-search search <query> --offset <n>
 ```
 
 **Examples:**
 
 ```bash
 # Basic search
-brave search "cloudflare workers documentation"
+brave-search search "cloudflare workers documentation"
 
 # Limit to 3 results
-brave search "typescript best practices" --count 3
+brave-search search "typescript best practices" --count 3
 
 # German-language results
-brave search "nachrichten heute" --country DE
+brave-search search "nachrichten heute" --country DE
 
 # Pagination (skip first 10 results)
-brave search "rust programming" --offset 10
+brave-search search "rust programming" --offset 10
 ```
 
 ## Output Format
@@ -130,6 +130,8 @@ Search results for: cloudflare workers
 | `--count <n>` | Number of results to return (1–20). Overrides the config default. |
 | `--country <code>` | 2-letter country code for region-specific results (e.g., `US`, `DE`, `GB`). Case-insensitive. |
 | `--offset <n>` | Pagination: skip first N results. Useful for loading more pages. |
+
+**Tool name**: `brave-search`
 
 ## Error Reference
 

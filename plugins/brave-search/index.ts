@@ -151,10 +151,10 @@ export function createPlugin(
   async function handler(args: string[]): Promise<ToolResult> {
     const USAGE =
       "Usage:\n" +
-      "  brave search <query>\n" +
-      "  brave search <query> --count <n>       (1-20, default: 5)\n" +
-      "  brave search <query> --country <code>  (e.g. US, DE, GB)\n" +
-      "  brave search <query> --offset <n>      (pagination)";
+      "  brave-search search <query>\n" +
+      "  brave-search search <query> --count <n>       (1-20, default: 10)\n" +
+      "  brave-search search <query> --country <code>  (e.g. US, DE, GB)\n" +
+      "  brave-search search <query> --offset <n>      (pagination)";
 
     if (args.length === 0 || args[0] !== "search") {
       return { output: USAGE, exitCode: 1 };
@@ -223,7 +223,7 @@ export function createPlugin(
   return {
     register(reg: PluginRegistrar): void {
       reg.tool({
-        name: "brave",
+        name: "brave-search",
         description:
           "Search the web using the Brave Search API. " +
           "Privacy-focused, fast web search with optional result limits and country filtering.",

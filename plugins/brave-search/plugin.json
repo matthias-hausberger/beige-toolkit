@@ -9,7 +9,7 @@
   ],
   "provides": {
     "tools": [
-      "brave"
+      "brave-search"
     ]
   },
   "defaultConfig": {

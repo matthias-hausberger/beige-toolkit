@@ -33,30 +33,30 @@ Or set the `BRAVE_API_KEY` environment variable and the plugin will use it autom
 
 ## Usage
 
-The Brave Search plugin provides a `brave` tool that agents can use to perform web searches.
+The Brave Search plugin provides a `brave-search` tool that agents can use to perform web searches.
 
 ### Basic Search
 
 ```
-brave search "what is cloudflare workers"
+brave-search search "what is cloudflare workers"
 ```
 
 ### Limit Results
 
 ```
-brave search "typescript best practices" --count 3
+brave-search search "typescript best practices" --count 3
 ```
 
 ### Country-Specific Search
 
 ```
-brave search "news today" --country DE
+brave-search search "news today" --country DE
 ```
 
 ### Pagination
 
 ```
-brave search "rust programming" --offset 10
+brave-search search "rust programming" --offset 10
 ```
 
 ## Commands Reference
@@ -68,6 +68,8 @@ brave search "rust programming" --offset 10
 | `search <query> --country <code>` | Country-specific results (e.g., US, DE, GB) |
 | `search <query> --offset <n>` | Pagination offset (default: 0) |
 
+**Tool name**: `brave-search`
+
 ## Configuration Options
 
 | Option | Type | Default | Description |
@@ -75,6 +77,8 @@ brave search "rust programming" --offset 10
 | `apiKey` | string | required | Brave Search API key |
 | `maxResults` | number | 10 | Default maximum results (1-20) |
 | `timeoutSeconds` | number | 30 | Request timeout in seconds |
+
+**Tool name**: `brave-search` (not `brave`)
 
 ## Output Format
 
