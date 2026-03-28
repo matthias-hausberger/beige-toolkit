@@ -54,7 +54,7 @@ describe("createPlugin", () => {
     const reg = { tool: vi.fn() };
     plugin.register(reg as any);
     expect(reg.tool).toHaveBeenCalledOnce();
-    expect(reg.tool.mock.calls[0][0].name).toBe("brave");
+    expect(reg.tool.mock.calls[0][0].name).toBe("brave-search");
   });
 
   it("warns when no API key is provided", () => {
