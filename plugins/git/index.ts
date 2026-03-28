@@ -65,7 +65,7 @@
  * The executor replaces the real git spawn. Tests inject a stub.
  */
 
-import { spawn } from "child_process";
+import { spawn, execFileSync } from "child_process";
 import { writeFileSync, unlinkSync, mkdirSync } from "fs";
 import { join, resolve } from "path";
 import { tmpdir } from "os";
@@ -137,6 +137,11 @@ export interface GitIdentityConfig {
 }
 
 export interface GitConfig {
+  /**
+   * Full path to the git binary (e.g. "/opt/homebrew/bin/git").
+   * When not set, falls back to "git" (must be on PATH).
+   */
+  binPath?: string;
   allowedCommands?: string | string[];
   deniedCommands?: string | string[];
   /**
@@ -500,7 +505,50 @@ export function buildIdentityEnv(identity: GitIdentityConfig | undefined): Recor
 // Real executor
 // ---------------------------------------------------------------------------
 
-export const defaultExecutor: Executor = (args, env, cwd) =>
+/**
+ * Resolve the full path to the git binary.
+ *
+ * Priority:
+ *   1. Explicit binPath from config (e.g. "/opt/homebrew/bin/git")
+ *   2. Auto-detect via `which git` at startup — works even when the gateway
+ *      process inherits a minimal PATH (GUI launchers, systemd, etc.) as
+ *      long as the login shell knows where git lives.
+ *   3. Fall back to bare "git" and let spawn() fail with a helpful message.
+ */
+function resolveGitBin(config: GitConfig): string {
+  const raw = config as Record<string, unknown>;
+  if (typeof raw.binPath === "string" && raw.binPath.trim()) {
+    return raw.binPath.trim();
+  }
+  return resolveBin("git");
+}
+
+/**
+ * Try to locate a binary by name using `which`.
+ * Returns the absolute path if found, otherwise the bare name as fallback.
+ */
+function resolveBin(name: string): string {
+  try {
+    return execFileSync("which", [name], { encoding: "utf-8" }).trim();
+  } catch {
+    // which failed — try common Homebrew/Linuxbrew paths
+    const commonPaths = [
+      `/opt/homebrew/bin/${name}`,
+      `/home/linuxbrew/.linuxbrew/bin/${name}`,
+      `/usr/local/bin/${name}`,
+    ];
+    for (const p of commonPaths) {
+      try {
+        // Check if file exists and is executable
+        execFileSync("test", ["-x", p]);
+        return p;
+      } catch { /* not found here */ }
+    }
+    return name;
+  }
+}
+
+export const createExecutor = (bin: string): Executor => (args, env, cwd) =>
   new Promise((resolve_) => {
     // Merge with a clean env: inherit PATH and locale vars from the gateway
     // process but do NOT pass through SSH_AUTH_SOCK, SSH_AGENT_PID, or any
@@ -540,7 +588,7 @@ export const defaultExecutor: Executor = (args, env, cwd) =>
     // Disable git's interactive prompts globally
     cleanEnv.GIT_TERMINAL_PROMPT = cleanEnv.GIT_TERMINAL_PROMPT ?? "0";
 
-    const proc = spawn("git", args, {
+    const proc = spawn(bin, args, {
       env: cleanEnv,
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
@@ -559,11 +607,14 @@ export const defaultExecutor: Executor = (args, env, cwd) =>
     proc.on("error", (err) => {
       resolve_({
         stdout: "",
-        stderr: `Failed to spawn git: ${err.message}. Is git installed on the gateway host?`,
+        stderr: `Failed to spawn git (${bin}): ${err.message}. Is git installed on the gateway host? If git is not on PATH, set binPath in the git tool config (e.g. binPath: "/opt/homebrew/bin/git").`,
         exitCode: 1,
       });
     });
   });
+
+/** Default executor using bare "git" — for backward compatibility. */
+export const defaultExecutor: Executor = createExecutor("git");
 
 // ---------------------------------------------------------------------------
 // Usage text
@@ -599,7 +650,7 @@ export function createHandler(
   context: GitContext = {}
 ): ToolHandler {
   const config = rawConfig as GitConfig;
-  const executor = context.executor ?? defaultExecutor;
+  const executor = context.executor ?? createExecutor(resolveGitBin(config));
 
   // Resolve allowed set once at startup
   const allowedSet = new Set<string>(
