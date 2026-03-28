@@ -45,6 +45,7 @@
 import { execFile } from "child_process";
 import { existsSync } from "fs";
 import { join } from "path";
+import { resolveBin } from "../_shared/resolve-bin.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -258,8 +259,8 @@ export function resolveWranglerPath(configuredPath?: string): string | null {
     return localPath;
   }
 
-  // 3. Global wrangler (let execFile resolve via PATH)
-  return "wrangler";
+  // 3. Global wrangler — auto-resolve via which / common paths
+  return resolveBin("wrangler");
 }
 
 // ---------------------------------------------------------------------------

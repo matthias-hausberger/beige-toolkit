@@ -97,9 +97,7 @@
  */
 
 import { execFile } from "child_process";
-
-// ---------------------------------------------------------------------------
-// Types
+import { resolveBin } from "../_shared/resolve-bin.ts";
 // ---------------------------------------------------------------------------
 
 export interface ConfluenceConfig {
@@ -766,7 +764,11 @@ export function createHandler(
   const config: ConfluenceConfig = hasConfig ? (rawConfig as ConfluenceConfig) : {};
   const timeoutMs = (config.timeout ?? 30) * 1000;
   const defaultProfile = config.profile;
-  const executor: Executor = context.executor ?? realExecutor;
+  const executor: Executor = context.executor ?? (() => {
+    const bin = resolveBin("confluence");
+    return (cmd: string, args: string[], timeout: number) =>
+      realExecutor(cmd === "confluence" ? bin : cmd, args, timeout);
+  })();
 
   // In-process cache: page ID → space key.  Lives for the handler lifetime
   // (i.e. a single beige gateway session).

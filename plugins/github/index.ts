@@ -1,4 +1,5 @@
-import { spawn, execFileSync } from "child_process";
+import { spawn } from "child_process";
+import { resolveBin } from "../_shared/resolve-bin.ts";
 
 // ---------------------------------------------------------------------------
 // Types — self-contained, no beige source imports needed.
@@ -115,42 +116,14 @@ function resolveAllowedCommands(config: Record<string, unknown>): Set<string> {
  * Resolve the full path to the gh binary.
  *
  * Priority:
- *   1. Explicit binPath from config (e.g. "/opt/homebrew/bin/gh")
- *   2. Auto-detect via `which gh` at startup — works even when the gateway
- *      process inherits a minimal PATH (GUI launchers, systemd, etc.) as
- *      long as the login shell knows where gh lives.
- *   3. Fall back to bare "gh" and let spawn() fail with a helpful message.
+ *   1. Explicit binPath from config
+ *   2. Auto-detect via resolveBin() (which → common paths → bare name)
  */
 function resolveGhBin(config: Record<string, unknown>): string {
   if (typeof config.binPath === "string" && config.binPath.trim()) {
     return config.binPath.trim();
   }
   return resolveBin("gh");
-}
-
-/**
- * Try to locate a binary by name using `which`.
- * Returns the absolute path if found, otherwise the bare name as fallback.
- */
-function resolveBin(name: string): string {
-  try {
-    return execFileSync("which", [name], { encoding: "utf-8" }).trim();
-  } catch {
-    // which failed — try common Homebrew/Linuxbrew paths
-    const commonPaths = [
-      `/opt/homebrew/bin/${name}`,
-      `/home/linuxbrew/.linuxbrew/bin/${name}`,
-      `/usr/local/bin/${name}`,
-    ];
-    for (const p of commonPaths) {
-      try {
-        // Check if file exists and is executable
-        execFileSync("test", ["-x", p]);
-        return p;
-      } catch { /* not found here */ }
-    }
-    return name;
-  }
 }
 
 export const createGhExecutor = (bin: string): GhExecutor => (args, token, cwd) =>

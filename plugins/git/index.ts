@@ -65,7 +65,8 @@
  * The executor replaces the real git spawn. Tests inject a stub.
  */
 
-import { spawn, execFileSync } from "child_process";
+import { spawn } from "child_process";
+import { resolveBin } from "../_shared/resolve-bin.ts";
 import { writeFileSync, unlinkSync, mkdirSync } from "fs";
 import { join, resolve } from "path";
 import { tmpdir } from "os";
@@ -509,11 +510,8 @@ export function buildIdentityEnv(identity: GitIdentityConfig | undefined): Recor
  * Resolve the full path to the git binary.
  *
  * Priority:
- *   1. Explicit binPath from config (e.g. "/opt/homebrew/bin/git")
- *   2. Auto-detect via `which git` at startup — works even when the gateway
- *      process inherits a minimal PATH (GUI launchers, systemd, etc.) as
- *      long as the login shell knows where git lives.
- *   3. Fall back to bare "git" and let spawn() fail with a helpful message.
+ *   1. Explicit binPath from config
+ *   2. Auto-detect via resolveBin() (which → common paths → bare name)
  */
 function resolveGitBin(config: GitConfig): string {
   const raw = config as Record<string, unknown>;
@@ -521,31 +519,6 @@ function resolveGitBin(config: GitConfig): string {
     return raw.binPath.trim();
   }
   return resolveBin("git");
-}
-
-/**
- * Try to locate a binary by name using `which`.
- * Returns the absolute path if found, otherwise the bare name as fallback.
- */
-function resolveBin(name: string): string {
-  try {
-    return execFileSync("which", [name], { encoding: "utf-8" }).trim();
-  } catch {
-    // which failed — try common Homebrew/Linuxbrew paths
-    const commonPaths = [
-      `/opt/homebrew/bin/${name}`,
-      `/home/linuxbrew/.linuxbrew/bin/${name}`,
-      `/usr/local/bin/${name}`,
-    ];
-    for (const p of commonPaths) {
-      try {
-        // Check if file exists and is executable
-        execFileSync("test", ["-x", p]);
-        return p;
-      } catch { /* not found here */ }
-    }
-    return name;
-  }
 }
 
 export const createExecutor = (bin: string): Executor => (args, env, cwd) =>

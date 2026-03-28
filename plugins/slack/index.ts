@@ -47,6 +47,7 @@
  */
 
 import { execFile } from "child_process";
+import { resolveBin } from "../_shared/resolve-bin.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -282,7 +283,11 @@ export function createHandler(
   const config: SlackConfig = hasConfig ? (rawConfig as SlackConfig) : {};
   const timeoutMs = (config.timeout ?? 30) * 1000;
   const defaultWorkspace = config.workspace;
-  const executor: Executor = context.executor ?? realExecutor;
+  const executor: Executor = context.executor ?? (() => {
+    const bin = resolveBin("slackcli");
+    return (cmd: string, args: string[], timeout: number) =>
+      realExecutor(cmd === "slackcli" ? bin : cmd, args, timeout);
+  })();
 
   return async (args: string[]): Promise<{ output: string; exitCode: number }> => {
     // ── No args ───────────────────────────────────────────────────────────
