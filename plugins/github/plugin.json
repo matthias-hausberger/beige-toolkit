@@ -1,6 +1,6 @@
 {
   "name": "github",
-  "description": "Interact with GitHub using the GitHub CLI (gh). Manage repos, issues, pull requests, releases, and more. Requires gh to be installed and authenticated on the gateway host. Repository deletion is permanently blocked. Raw API access ('api') is off by default but can be enabled via allowedCommands config.",
+  "description": "Interact with GitHub using the GitHub CLI (gh). Manage repos, issues, pull requests, releases, and more. Commands execute on the gateway host, not in the sandbox. Authentication and gh configuration are managed by the gateway via the token config field or the host's ~/.config/gh/ - agents cannot access or modify these credentials. Repository deletion is permanently blocked. Raw API access ('api') is off by default but can be enabled via allowedCommands config.",
   "commands": [
     "repo list [owner]                         \u2014 List repositories",
     "repo view <owner/repo>                    \u2014 View repository details",

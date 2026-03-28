@@ -1,6 +1,6 @@
 {
   "name": "git",
-  "description": "Run git commands against the agent's workspace on the gateway host. Supports clone, pull, push, commit, and more. Authentication uses a per-agent ed25519 SSH key stored at ~/.beige/agents/<name>/ssh/id_ed25519 \u2014 never the gateway operator's own SSH keys. Repository deletion and git config mutation are permanently blocked. Force-push is blocked by default.",
+  "description": "Run git commands against the agent's workspace on the gateway host. Commands execute on the gateway host, not in the sandbox. Authentication and git config are managed by the gateway via the auth config field or per-agent SSH keys - agents cannot access or modify these credentials. Uses a per-agent ed25519 SSH key stored at ~/.beige/agents/<name>/ssh/id_ed25519 \u2014 never the gateway operator's own SSH keys. Repository deletion and git config mutation are permanently blocked. Force-push is blocked by default.",
   "commands": [
     "clone <url> [dir]                         \u2014 Clone a repository into the workspace",
     "pull [remote] [branch]                    \u2014 Pull from remote",
