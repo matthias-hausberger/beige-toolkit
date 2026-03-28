@@ -1,6 +1,6 @@
 {
   "name": "github",
-  "description": "Interact with GitHub using the GitHub CLI (gh). Manage repos, issues, pull requests, releases, and more. Commands execute on the gateway host, not in the sandbox. Authentication and gh configuration are managed by the gateway via the token config field or the host's ~/.config/gh/ - agents cannot access or modify these credentials. Repository deletion is permanently blocked. Raw API access ('api') is off by default but can be enabled via allowedCommands config.",
+  "description": "Interact with GitHub using the GitHub CLI (gh). Manage repos, issues, pull requests, releases, and more. Commands execute on the gateway host, not in the sandbox. Authentication and gh configuration are managed by the gateway via the token config field or the host's ~/.config/gh/ - agents cannot access or modify these credentials. Repository deletion is permanently blocked. Includes GitHub notification polling channel adapter for zero-infrastructure monitoring.",
   "commands": [
     "repo list [owner]                         \u2014 List repositories",
     "repo view <owner/repo>                    \u2014 View repository details",
@@ -21,10 +21,21 @@
   "provides": {
     "tools": [
       "github"
-    ]
+    ],
+    "channel": true
   },
   "defaultConfig": {
-    "token": "<YOUR_GITHUB_TOKEN>"
+    "token": "<YOUR_GITHUB_TOKEN>",
+    "polling": {
+      "enabled": false,
+      "username": "",
+      "pollIntervalSeconds": 60,
+      "respondTo": "mentions",
+      "includeFullThread": true,
+      "agentMapping": {
+        "default": "assistant"
+      }
+    }
   },
   "configSchema": {
     "type": "object",
@@ -40,6 +51,55 @@
       "deniedCommands": {
         "type": "string | string[]",
         "description": "Blacklist of top-level gh subcommands. Takes precedence over allowedCommands."
+      },
+      "polling": {
+        "type": "object",
+        "description": "GitHub notification polling configuration. Enables zero-infrastructure monitoring of GitHub mentions and PR activity.",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable GitHub polling. Default: false (must be explicitly enabled)."
+          },
+          "username": {
+            "type": "string",
+            "description": "GitHub username to watch for mentions. Required when polling is enabled."
+          },
+          "pollIntervalSeconds": {
+            "type": "number",
+            "description": "Polling interval in seconds. Default: 60 (min: 30, max: 3600)."
+          },
+          "respondTo": {
+            "type": "string",
+            "enum": ["mentions", "all", "watched"],
+            "description": "What to respond to. Options: 'mentions' (default), 'all' (all notifications), 'watched' (only watched repos/PRs)."
+          },
+          "includeFullThread": {
+            "type": "boolean",
+            "description": "Include full comment thread in session context. Default: true."
+          },
+          "watchedRepos": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "List of repositories to watch (e.g., ['owner/repo', 'org/project']). Optional."
+          },
+          "watchedPrs": {
+            "type": "array",
+            "items": { "type": "number" },
+            "description": "List of PR/issue IDs to watch globally. Optional."
+          },
+          "agentMapping": {
+            "type": "object",
+            "description": "Agent routing per repository. Default agent is used if no specific mapping exists.",
+            "properties": {
+              "default": {
+                "type": "string",
+                "description": "Default agent name. Required when polling is enabled."
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "required": ["enabled", "username", "agentMapping.default"]
       }
     }
   }
