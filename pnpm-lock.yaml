@@ -9,7 +9,7 @@ importers:
   .:
     devDependencies:
       '@matthias-hausberger/beige':
-        specifier: ^1.0.6
+        specifier: '>=1.0.6'
         version: 1.0.6(ws@8.20.0)(zod@4.3.6)
       '@types/node':
         specifier: ^22.0.0
