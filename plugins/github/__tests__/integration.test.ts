@@ -24,7 +24,7 @@ describe("plugin.json", () => {
 
   it("provides the github tool", () => {
     const manifest = loadToolManifest(TOOL_DIR);
-    expect(manifest.provides).toEqual({ tools: ["github"] });
+    expect(manifest.provides).toEqual({ tools: ["github"], channel: true });
   });
 
   it("has at least one documented command", () => {

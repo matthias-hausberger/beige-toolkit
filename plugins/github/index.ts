@@ -400,7 +400,7 @@ export function createPlugin(
   };
 
   // Resolve gh binary
-  const ghBin = resolveBin(config);
+  const ghBin = resolveGhBin(config);
 
   // ---------------------------------------------------------------------------
   // Helper: Execute gh command
@@ -491,8 +491,9 @@ export function createPlugin(
     const repo = notif.repository.full_name;
 
     // Check if repo is in watched list (if configured)
-    if (pollingConfig.respondTo === "watched" && pollingConfig.watchedRepos?.length > 0) {
-      if (!pollingConfig.watchedRepos.includes(repo)) {
+    if (pollingConfig.respondTo === "watched") {
+      const watchedRepos = pollingConfig.watchedRepos;
+      if (watchedRepos && watchedRepos.length > 0 && !watchedRepos.includes(repo)) {
         return false;
       }
     }
@@ -505,7 +506,8 @@ export function createPlugin(
     const number = parseInt(match[2], 10);
 
     // Check if PR/issue is in watched list (if configured)
-    if (pollingConfig.watchedPrs?.length > 0 && !pollingConfig.watchedPrs.includes(number)) {
+    const watchedPrs = pollingConfig.watchedPrs;
+    if (watchedPrs && watchedPrs.length > 0 && !watchedPrs.includes(number)) {
       return false;
     }
 
@@ -515,9 +517,11 @@ export function createPlugin(
         // All notifications pass through
         return true;
 
-      case "watched":
+      case "watched": {
         // Only notifications from watched repos/PRs
-        if (pollingConfig.watchedRepos?.length > 0 || pollingConfig.watchedPrs?.length > 0) {
+        const reposLen = pollingConfig.watchedRepos?.length ?? 0;
+        const prsLen = pollingConfig.watchedPrs?.length ?? 0;
+        if (reposLen > 0 || prsLen > 0) {
           return true;
         }
         // If no watched repos/PRs, fall back to mentions
@@ -526,6 +530,7 @@ export function createPlugin(
           notif.reason === "team_mention" ||
           notif.reason === "review_requested"
         );
+      }
 
       case "mentions":
       default:
@@ -618,13 +623,13 @@ export function createPlugin(
 
   async function pollGitHubNotifications(): Promise<void> {
     try {
-      ctx.log.debug("Polling GitHub notifications...");
+      ctx.log.info("Polling GitHub notifications...");
 
       // Fetch notifications since last check
       const notifications = await fetchNotifications(state.lastCheckTimestamp);
 
       if (notifications.length === 0) {
-        ctx.log.debug("No new notifications");
+        ctx.log.info("No new notifications");
         return;
       }
 
@@ -709,6 +714,9 @@ export function createPlugin(
     },
     async sendMessage(): Promise<void> {
       throw new Error("GitHub polling channel does not support proactive messaging");
+    },
+    async sendPhoto(): Promise<void> {
+      throw new Error("GitHub polling channel does not support sending photos");
     },
   };
 
