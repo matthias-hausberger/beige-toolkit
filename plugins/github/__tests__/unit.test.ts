@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createHandler } from "../index.js";
+import { createHandler, checkFromUsersFilter } from "../index.js";
 import { createFakeGhClient } from "../../../test-utils/createFakeGhClient.js";
 
 // ---------------------------------------------------------------------------
@@ -376,5 +376,89 @@ describe("workspace directory", () => {
     await handler(["repo", "list"], undefined, { agentName: "test" });
 
     expect(fake.cwds[0]).toBe(process.cwd());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fromUsers filter (security-critical)
+//
+// checkFromUsersFilter is the pure, exported core of the fromUsers gate.
+// It must be fail-closed: when fromUsers is configured and the triggering
+// user cannot be determined (null), the notification MUST be denied.
+// ---------------------------------------------------------------------------
+
+describe("checkFromUsersFilter", () => {
+  // ── No filter configured (passthrough) ──────────────────────────────
+
+  it("allows any user when fromUsers is undefined", () => {
+    expect(checkFromUsersFilter("alice", undefined)).toBe(true);
+  });
+
+  it("allows any user when fromUsers is empty array", () => {
+    expect(checkFromUsersFilter("alice", [])).toBe(true);
+  });
+
+  it("allows null (unknown) user when fromUsers is undefined", () => {
+    expect(checkFromUsersFilter(null, undefined)).toBe(true);
+  });
+
+  it("allows null (unknown) user when fromUsers is empty array", () => {
+    expect(checkFromUsersFilter(null, [])).toBe(true);
+  });
+
+  // ── Filter configured — allowed users ───────────────────────────────
+
+  it("allows a user who is in the fromUsers list", () => {
+    expect(checkFromUsersFilter("alice", ["alice"])).toBe(true);
+  });
+
+  it("allows a user who is one of several in the list", () => {
+    expect(checkFromUsersFilter("bob", ["alice", "bob", "charlie"])).toBe(true);
+  });
+
+  it("comparison is case-insensitive (user lowercase, list uppercase)", () => {
+    expect(checkFromUsersFilter("alice", ["Alice"])).toBe(true);
+  });
+
+  it("comparison is case-insensitive (user uppercase, list lowercase)", () => {
+    expect(checkFromUsersFilter("ALICE", ["alice"])).toBe(true);
+  });
+
+  it("comparison is case-insensitive (mixed case)", () => {
+    expect(checkFromUsersFilter("AlIcE", ["aLiCe"])).toBe(true);
+  });
+
+  // ── Filter configured — denied users ────────────────────────────────
+
+  it("denies a user who is NOT in the fromUsers list", () => {
+    expect(checkFromUsersFilter("eve", ["alice", "bob"])).toBe(false);
+  });
+
+  it("denies a user when list has single different entry", () => {
+    expect(checkFromUsersFilter("eve", ["alice"])).toBe(false);
+  });
+
+  // ── Filter configured — fail-closed (null user) ────────────────────
+
+  it("DENIES null (unknown) user when fromUsers is configured (fail-closed)", () => {
+    expect(checkFromUsersFilter(null, ["alice"])).toBe(false);
+  });
+
+  it("DENIES null user even with many allowed users (fail-closed)", () => {
+    expect(checkFromUsersFilter(null, ["alice", "bob", "charlie"])).toBe(false);
+  });
+
+  // ── Edge cases ──────────────────────────────────────────────────────
+
+  it("denies empty-string user when fromUsers is configured", () => {
+    // Empty string is not null — it's a known but invalid username.
+    // No GitHub user has an empty login, so this should not match.
+    expect(checkFromUsersFilter("", ["alice"])).toBe(false);
+  });
+
+  it("handles single-user list correctly", () => {
+    expect(checkFromUsersFilter("alice", ["alice"])).toBe(true);
+    expect(checkFromUsersFilter("bob", ["alice"])).toBe(false);
+    expect(checkFromUsersFilter(null, ["alice"])).toBe(false);
   });
 });

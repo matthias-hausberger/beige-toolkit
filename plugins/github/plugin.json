@@ -32,6 +32,7 @@
       "pollIntervalSeconds": 60,
       "respondTo": "mentions",
       "includeFullThread": true,
+      "fromUsers": [],
       "agentMapping": {
         "default": "assistant"
       }
@@ -86,6 +87,11 @@
             "type": "array",
             "items": { "type": "number" },
             "description": "List of PR/issue IDs to watch globally. Optional."
+          },
+          "fromUsers": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Only forward notifications triggered by these GitHub usernames. When set, notifications from other users are silently ignored. Optional — when absent, all users pass through."
           },
           "agentMapping": {
             "type": "object",

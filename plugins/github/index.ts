@@ -3,6 +3,44 @@ import { join } from "node:path";
 import { resolveBin } from "../_shared/resolve-bin.ts";
 
 // ---------------------------------------------------------------------------
+// Exported pure helpers — extracted for direct unit testing.
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether a triggering user passes the fromUsers allowlist.
+ *
+ * Security invariant (fail-closed): when fromUsers is configured, a
+ * notification is ONLY allowed through if:
+ *   1. The triggering user can be positively identified (non-null), AND
+ *   2. That user is in the fromUsers list (case-insensitive).
+ *
+ * If the triggering user is null (unknown), the notification is DENIED.
+ * If fromUsers is empty or undefined, all users pass through.
+ *
+ * @param triggeringUser  The GitHub login of who triggered the notification, or null if unknown.
+ * @param fromUsers       The configured allowlist, or undefined/empty for no filtering.
+ * @returns true if the notification should be forwarded.
+ */
+export function checkFromUsersFilter(
+  triggeringUser: string | null,
+  fromUsers: string[] | undefined
+): boolean {
+  // No fromUsers configured — all users pass through.
+  if (!fromUsers || fromUsers.length === 0) {
+    return true;
+  }
+
+  // Cannot determine who triggered this — deny (fail-closed).
+  if (triggeringUser === null) {
+    return false;
+  }
+
+  // Case-insensitive comparison — GitHub usernames are case-insensitive.
+  const normalizedUser = triggeringUser.toLowerCase();
+  return fromUsers.some((u) => u.toLowerCase() === normalizedUser);
+}
+
+// ---------------------------------------------------------------------------
 // Types — self-contained, no beige source imports needed.
 // ---------------------------------------------------------------------------
 
@@ -326,6 +364,7 @@ interface GitHubPollingConfig {
   includeFullThread: boolean;
   watchedRepos?: string[];
   watchedPrs?: number[];
+  fromUsers?: string[];
   agentMapping: { default: string; [repo: string]: string };
 }
 
@@ -484,6 +523,63 @@ export function createPlugin(
   }
 
   // ---------------------------------------------------------------------------
+  // Helper: Resolve the GitHub user who triggered a notification.
+  //
+  // The GitHub Notifications API does NOT include the actor — the only way
+  // to identify who caused a notification is to fetch the triggering comment
+  // via latest_comment_url. Returns null when the user cannot be determined
+  // (e.g. no latest_comment_url, or the API call fails).
+  // ---------------------------------------------------------------------------
+
+  async function resolveTriggeringUser(
+    notif: GitHubNotification
+  ): Promise<string | null> {
+    if (!notif.subject.latest_comment_url) {
+      return null;
+    }
+
+    const comment = await fetchIssueComment(notif.subject.latest_comment_url);
+    return comment?.user?.login ?? null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helper: Check if the triggering user passes the fromUsers allowlist.
+  //
+  // Delegates to the exported pure function checkFromUsersFilter() and adds
+  // logging. See that function's JSDoc for the security invariant.
+  // ---------------------------------------------------------------------------
+
+  async function passesTriggeringUserFilter(
+    notif: GitHubNotification
+  ): Promise<boolean> {
+    const fromUsers = pollingConfig.fromUsers;
+
+    // No fromUsers configured — all users pass through.
+    if (!fromUsers || fromUsers.length === 0) {
+      return true;
+    }
+
+    const triggeringUser = await resolveTriggeringUser(notif);
+    const allowed = checkFromUsersFilter(triggeringUser, fromUsers);
+
+    if (!allowed) {
+      if (triggeringUser === null) {
+        ctx.log.info(
+          `    -> Denied by fromUsers filter: could not determine triggering user ` +
+          `(no latest_comment_url or API failure). Notification: "${notif.subject.title}"`
+        );
+      } else {
+        ctx.log.info(
+          `    -> Denied by fromUsers filter: user "${triggeringUser}" is not in ` +
+          `allowed list [${fromUsers.join(", ")}]`
+        );
+      }
+    }
+
+    return allowed;
+  }
+
+  // ---------------------------------------------------------------------------
   // Helper: Check if notification is relevant based on config
   // ---------------------------------------------------------------------------
 
@@ -518,35 +614,44 @@ export function createPlugin(
       return false;
     }
 
-    // Filter by respondTo mode
+    // Determine content-level relevance based on respondTo mode.
+    // This produces a boolean — but we do NOT return yet. The fromUsers
+    // gate below must run on every accepted notification.
+    let contentRelevant = false;
+
     switch (pollingConfig.respondTo) {
       case "all":
         // All notifications pass through (but must have a valid subject URL)
-        return match !== null;
+        contentRelevant = match !== null;
+        break;
 
       case "watched": {
         // Only notifications from watched repos/PRs
         const reposLen = pollingConfig.watchedRepos?.length ?? 0;
         const prsLen = pollingConfig.watchedPrs?.length ?? 0;
         if (reposLen > 0 || prsLen > 0) {
-          return true;
+          contentRelevant = true;
+        } else {
+          // If no watched repos/PRs, fall back to mentions
+          contentRelevant = isMention;
         }
-        // If no watched repos/PRs, fall back to mentions
-        return isMention;
+        break;
       }
 
       case "mentions":
       default:
         // Mentions and review requests always pass through
         if (isMention) {
-          return true;
+          contentRelevant = true;
+          break;
         }
 
         // For issue comments, check if @mentioned in body
         if (notif.subject.type === "IssueComment" && notif.subject.latest_comment_url) {
           const comment = await fetchIssueComment(notif.subject.latest_comment_url);
           if (comment?.body?.includes(`@${pollingConfig.username}`)) {
-            return true;
+            contentRelevant = true;
+            break;
           }
         }
 
@@ -554,12 +659,29 @@ export function createPlugin(
         if (notif.subject.type === "PullRequestReviewComment" && notif.subject.latest_comment_url) {
           const comment = await fetchIssueComment(notif.subject.latest_comment_url);
           if (comment?.body?.includes(`@${pollingConfig.username}`)) {
-            return true;
+            contentRelevant = true;
+            break;
           }
         }
 
-        return false;
+        contentRelevant = false;
+        break;
     }
+
+    if (!contentRelevant) {
+      return false;
+    }
+
+    // ── fromUsers gate (security-critical) ──────────────────────────────
+    // This runs AFTER content relevance is established. Every notification
+    // that would otherwise be forwarded must pass this check. Fail-closed:
+    // if fromUsers is set and the triggering user cannot be identified, the
+    // notification is denied.
+    if (!await passesTriggeringUserFilter(notif)) {
+      return false;
+    }
+
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -847,6 +969,11 @@ export function createPlugin(
       ctx.log.info(`GitHub polling started (interval: ${pollingConfig.pollIntervalSeconds}s)`);
       ctx.log.info(`Respond to: ${pollingConfig.respondTo}`);
       ctx.log.info(`Include full thread: ${pollingConfig.includeFullThread}`);
+      if (pollingConfig.fromUsers && pollingConfig.fromUsers.length > 0) {
+        ctx.log.info(`fromUsers filter ACTIVE — only forwarding notifications triggered by: [${pollingConfig.fromUsers.join(", ")}]`);
+      } else {
+        ctx.log.info(`fromUsers filter INACTIVE — forwarding notifications from all users`);
+      }
     },
 
     async stop(): Promise<void> {
