@@ -591,30 +591,115 @@ export function createPlugin(
   // ---------------------------------------------------------------------------
 
   async function buildEventContext(notif: GitHubNotification): Promise<string> {
-    const lines: string[] = [
-      `GitHub Event: ${notif.subject.type}`,
-      ``,
-      `Repository: ${notif.repository.full_name}`,
-      `URL: ${notif.repository.html_url}`,
-      ``,
-      `Subject: ${notif.subject.title}`,
-      `Subject Type: ${notif.subject.type}`,
-      `Subject URL: ${notif.subject.url}`,
-      ``,
-      `Notification Reason: ${notif.reason}`,
-      `Last Updated: ${notif.updated_at}`,
-      ``,
-    ];
+    const lines: string[] = [];
+    const repo = notif.repository.full_name;
+
+    // Extract issue/PR number from subject URL
+    const match = notif.subject.url?.match(/\/(issues|pulls)\/(\d+)$/);
+    const number = match ? match[2] : null;
+    const isPR = match?.[1] === "pulls";
 
     lines.push(
+      `# GitHub Notification`,
+      ``,
+      `**Repository:** ${repo}`,
+      `**Type:** ${notif.subject.type}`,
+      `**Reason:** ${notif.reason}`,
+      `**Title:** ${notif.subject.title}`,
+    );
+
+    if (number) {
+      const htmlUrl = `${notif.repository.html_url}/${isPR ? "pull" : "issues"}/${number}`;
+      lines.push(`**URL:** ${htmlUrl}`);
+
+      // Fetch the PR/issue details
+      try {
+        const detailResult = await execGh([
+          "api", notif.subject.url, "--jq",
+          '{body, state, user: .user.login, created_at, updated_at, comments, merged: .merged, draft: .draft}',
+        ]);
+        if (detailResult.exitCode === 0 && detailResult.stdout.trim()) {
+          const detail = JSON.parse(detailResult.stdout);
+          lines.push(
+            `**Author:** ${detail.user}`,
+            `**State:** ${detail.state}${detail.merged ? " (merged)" : ""}${detail.draft ? " (draft)" : ""}`,
+            ``,
+            `## Description`,
+            ``,
+            detail.body || "_No description provided._",
+          );
+        }
+      } catch (err) {
+        ctx.log.warn(`Failed to fetch ${isPR ? "PR" : "issue"} details: ${err}`);
+      }
+
+      // Fetch the conversation thread (comments)
+      if (pollingConfig.includeFullThread) {
+        try {
+          const commentsEndpoint = isPR
+            ? `/repos/${repo}/issues/${number}/comments`
+            : `/repos/${repo}/issues/${number}/comments`;
+          const commentsResult = await execGh([
+            "api", commentsEndpoint, "--paginate", "--jq",
+            '.[] | "### @\\(.user.login) (\\(.created_at))\\n\\(.body)"',
+          ]);
+          if (commentsResult.exitCode === 0 && commentsResult.stdout.trim()) {
+            lines.push(``, `## Conversation`, ``);
+            lines.push(commentsResult.stdout.trim());
+          }
+        } catch (err) {
+          ctx.log.warn(`Failed to fetch comments: ${err}`);
+        }
+
+        // For PRs, also fetch review comments (inline code comments)
+        if (isPR) {
+          try {
+            const reviewCommentsResult = await execGh([
+              "api", `/repos/${repo}/pulls/${number}/comments`, "--paginate", "--jq",
+              '.[] | "### @\\(.user.login) on \\(.path) (\\(.created_at))\\n\\(.body)"',
+            ]);
+            if (reviewCommentsResult.exitCode === 0 && reviewCommentsResult.stdout.trim()) {
+              lines.push(``, `## Review Comments`, ``);
+              lines.push(reviewCommentsResult.stdout.trim());
+            }
+          } catch (err) {
+            ctx.log.warn(`Failed to fetch review comments: ${err}`);
+          }
+        }
+      }
+
+      // If there's a latest_comment_url, fetch that specific comment to highlight what triggered the notification
+      if (notif.subject.latest_comment_url) {
+        try {
+          const commentResult = await execGh([
+            "api", notif.subject.latest_comment_url, "--jq",
+            '{user: .user.login, body, created_at}',
+          ]);
+          if (commentResult.exitCode === 0 && commentResult.stdout.trim()) {
+            const comment = JSON.parse(commentResult.stdout);
+            lines.push(
+              ``,
+              `## Triggering Comment (by @${comment.user})`,
+              ``,
+              comment.body,
+            );
+          }
+        } catch (err) {
+          ctx.log.warn(`Failed to fetch triggering comment: ${err}`);
+        }
+      }
+    }
+
+    lines.push(
+      ``,
       `---`,
       ``,
-      `You can reply to this by using the GitHub tool:`,
-      `- Comment on issue/PR: github issue comment <number> <comment>`,
-      `- Create issue: github issue create --repo <repo> --title <title> --body <body>`,
-      `- Merge PR: github pr merge <number>`,
+      `You are responding to this GitHub notification on behalf of **${pollingConfig.username}**.`,
+      `Use the GitHub tool to respond:`,
+      `- Comment on issue/PR: \`github issue comment ${number || "<number>"} --repo ${repo} --body "<comment>"\``,
+      `- Review PR: \`github pr review ${number || "<number>"} --repo ${repo} --approve/--comment/--request-changes --body "<review>"\``,
       ``,
-      `What would you like to do?`,
+      `Read the full conversation above and respond appropriately to what was asked or discussed.`,
     );
 
     return lines.join("\n");
