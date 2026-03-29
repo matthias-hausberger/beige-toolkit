@@ -450,7 +450,9 @@ export function createPlugin(
   async function fetchNotifications(since: string): Promise<GitHubNotification[]> {
     const result = await execGh([
       "api",
-      "notifications",
+      "/notifications",
+      "--method",
+      "GET",
       "--paginate",
       "--jq",
       ".[]",
@@ -498,24 +500,29 @@ export function createPlugin(
       }
     }
 
-    // Extract issue/PR number from URL
-    const match = notif.subject.url.match(/\/(issues|pull)\/(\d+)$/);
-    if (!match) {
-      return false;
-    }
-    const number = parseInt(match[2], 10);
+    // For mentions mode (default), check reason-based relevance first —
+    // this must happen before URL parsing so that mentions on PRs/issues
+    // are never accidentally dropped.
+    const isMention =
+      notif.reason === "mention" ||
+      notif.reason === "team_mention" ||
+      notif.reason === "review_requested";
+
+    // Extract issue/PR number from URL (GitHub API uses /pulls/ for PRs)
+    const match = notif.subject.url?.match(/\/(issues|pulls?)\/(\d+)$/);
+    const number = match ? parseInt(match[2], 10) : null;
 
     // Check if PR/issue is in watched list (if configured)
     const watchedPrs = pollingConfig.watchedPrs;
-    if (watchedPrs && watchedPrs.length > 0 && !watchedPrs.includes(number)) {
+    if (number !== null && watchedPrs && watchedPrs.length > 0 && !watchedPrs.includes(number)) {
       return false;
     }
 
     // Filter by respondTo mode
     switch (pollingConfig.respondTo) {
       case "all":
-        // All notifications pass through
-        return true;
+        // All notifications pass through (but must have a valid subject URL)
+        return match !== null;
 
       case "watched": {
         // Only notifications from watched repos/PRs
@@ -525,17 +532,13 @@ export function createPlugin(
           return true;
         }
         // If no watched repos/PRs, fall back to mentions
-        return (
-          notif.reason === "mention" ||
-          notif.reason === "team_mention" ||
-          notif.reason === "review_requested"
-        );
+        return isMention;
       }
 
       case "mentions":
       default:
-        // Only mentions and review requests
-        if (notif.reason === "mention" || notif.reason === "team_mention" || notif.reason === "review_requested") {
+        // Mentions and review requests always pass through
+        if (isMention) {
           return true;
         }
 
@@ -638,7 +641,10 @@ export function createPlugin(
       // Deduplicate and filter
       const relevant: GitHubNotification[] = [];
       for (const notif of notifications) {
+        ctx.log.info(`  Notification: [${notif.reason}] ${notif.subject.type} - "${notif.subject.title}" (${notif.repository.full_name})`);
+
         if (state.seenNotificationIds.has(notif.id)) {
+          ctx.log.info(`    -> Skipped (already seen)`);
           continue;
         }
         state.seenNotificationIds.add(notif.id);
