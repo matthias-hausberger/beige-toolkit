@@ -350,7 +350,7 @@ import type {
   PluginRegistrar,
   ChannelAdapter,
 } from "@matthias-hausberger/beige";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join as joinPath } from "node:path";
 
 /**
@@ -407,7 +407,16 @@ interface IssueComment {
 interface PollingState {
   timer: NodeJS.Timeout | null;
   lastCheckTimestamp: string;
-  seenNotificationIds: Set<string>;
+  /**
+   * Maps notification ID → the latest_comment_url we last responded to.
+   * GitHub reuses the same notification ID for a thread; new comments update
+   * the notification's latest_comment_url. By tracking this per notification
+   * we can detect new comments without re-processing old ones.
+   *
+   * For notifications without a latest_comment_url we store the updated_at
+   * timestamp as a fallback key.
+   */
+  processedCommentUrls: Map<string, string>;
 }
 
 /**
@@ -431,11 +440,61 @@ export function createPlugin(
   pollingConfig.includeFullThread = pollingConfig.includeFullThread ?? true;
   pollingConfig.agentMapping = pollingConfig.agentMapping ?? { default: "assistant" };
 
-  // Polling state
+  // ---------------------------------------------------------------------------
+  // Persistent polling state
+  //
+  // Persisted to ctx.dataDir so deduplication survives gateway restarts.
+  // The state file is a simple JSON object with:
+  //   - lastCheckTimestamp: ISO string of the last successful poll
+  //   - processedCommentUrls: { [notificationId]: lastCommentUrl }
+  // ---------------------------------------------------------------------------
+
+  const stateFilePath = joinPath(ctx.dataDir, "polling-state.json");
+
+  interface PersistedState {
+    lastCheckTimestamp: string;
+    processedCommentUrls: Record<string, string>;
+  }
+
+  function loadPersistedState(): { lastCheckTimestamp: string; processedCommentUrls: Map<string, string> } {
+    try {
+      if (existsSync(stateFilePath)) {
+        const raw = readFileSync(stateFilePath, "utf8");
+        const parsed: PersistedState = JSON.parse(raw);
+        ctx.log.info(`Loaded polling state from ${stateFilePath} (${Object.keys(parsed.processedCommentUrls).length} tracked notifications)`);
+        return {
+          lastCheckTimestamp: parsed.lastCheckTimestamp,
+          processedCommentUrls: new Map(Object.entries(parsed.processedCommentUrls)),
+        };
+      }
+    } catch (err) {
+      ctx.log.warn(`Failed to load polling state from ${stateFilePath}: ${err}. Starting fresh.`);
+    }
+    return {
+      lastCheckTimestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+      processedCommentUrls: new Map(),
+    };
+  }
+
+  function persistState(): void {
+    try {
+      const data: PersistedState = {
+        lastCheckTimestamp: state.lastCheckTimestamp,
+        processedCommentUrls: Object.fromEntries(state.processedCommentUrls),
+      };
+      mkdirSync(joinPath(stateFilePath, ".."), { recursive: true });
+      writeFileSync(stateFilePath, JSON.stringify(data, null, 2), "utf8");
+    } catch (err) {
+      ctx.log.warn(`Failed to persist polling state: ${err}`);
+    }
+  }
+
+  // Polling state — loaded from disk if available
+  const persisted = loadPersistedState();
   const state: PollingState = {
     timer: null,
-    lastCheckTimestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-    seenNotificationIds: new Set(),
+    lastCheckTimestamp: persisted.lastCheckTimestamp,
+    processedCommentUrls: persisted.processedCommentUrls,
   };
 
   // Resolve gh binary
@@ -697,11 +756,11 @@ export function createPlugin(
   // ---------------------------------------------------------------------------
 
   function getSessionKey(notif: GitHubNotification): string {
-    const match = notif.subject.url.match(/\/repos\/([^\/]+)\/([^\/]+)\/(issues|pull)\/(\d+)$/);
+    const match = notif.subject.url.match(/\/repos\/([^\/]+)\/([^\/]+)\/(issues|pulls?)\/(\d+)$/);
     if (match) {
       const owner = match[1];
       const repo = match[2];
-      const type = match[3]; // "issues" or "pull"
+      const type = match[3] === "issues" ? "issues" : "pull"; // normalise "pulls" → "pull"
       const number = match[4];
       return `github:${owner}/${repo}:${type}/${number}`;
     }
@@ -717,9 +776,9 @@ export function createPlugin(
     const repo = notif.repository.full_name;
 
     // Extract issue/PR number from subject URL
-    const match = notif.subject.url?.match(/\/(issues|pulls)\/(\d+)$/);
+    const match = notif.subject.url?.match(/\/(issues|pulls?)\/(\d+)$/);
     const number = match ? match[2] : null;
-    const isPR = match?.[1] === "pulls";
+    const isPR = match?.[1] === "pulls" || match?.[1] === "pull";
 
     lines.push(
       `# GitHub Notification`,
@@ -817,9 +876,12 @@ export function createPlugin(
       `---`,
       ``,
       `You are responding to this GitHub notification on behalf of **${pollingConfig.username}**.`,
-      `Use the GitHub tool to respond:`,
-      `- Comment on issue/PR: \`github issue comment ${number || "<number>"} --repo ${repo} --body "<comment>"\``,
-      `- Review PR: \`github pr review ${number || "<number>"} --repo ${repo} --approve/--comment/--request-changes --body "<review>"\``,
+      `Your response will be **automatically posted** as a comment on this ${isPR ? "pull request" : "issue"}.`,
+      `Write your response directly — do NOT call the github tool to post a comment.`,
+      ``,
+      `You may still use the github tool for other actions:`,
+      `- Review PR: \`github pr review ${number || "<number>"} --repo ${repo} --approve/--request-changes --body "<review>"\``,
+      `- Look up related issues/PRs, code, etc.`,
       ``,
       `Read the full conversation above and respond appropriately to what was asked or discussed.`,
     );
@@ -850,15 +912,27 @@ export function createPlugin(
       for (const notif of notifications) {
         ctx.log.info(`  Notification: [${notif.reason}] ${notif.subject.type} - "${notif.subject.title}" (${notif.repository.full_name})`);
 
-        if (state.seenNotificationIds.has(notif.id)) {
-          ctx.log.info(`    -> Skipped (already seen)`);
+        // Deduplication: check if we already processed this exact comment.
+        // GitHub reuses notification IDs — new comments on the same thread
+        // update the existing notification's latest_comment_url and updated_at.
+        // We use the comment URL as the dedup key (falling back to updated_at
+        // for notifications that lack a comment URL, e.g. direct @mentions in
+        // the issue body).
+        const dedupeKey = notif.subject.latest_comment_url || notif.updated_at;
+        const previousKey = state.processedCommentUrls.get(notif.id);
+
+        if (previousKey === dedupeKey) {
+          ctx.log.info(`    -> Skipped (already processed this comment)`);
           continue;
         }
-        state.seenNotificationIds.add(notif.id);
 
         const isRelevant = await isNotificationRelevant(notif);
         if (isRelevant) {
           relevant.push(notif);
+          // Mark as processed AFTER relevance check passes — irrelevant
+          // notifications (e.g. from a user not in fromUsers) should be
+          // re-checked on the next poll in case the dedup key changes.
+          state.processedCommentUrls.set(notif.id, dedupeKey);
         }
       }
 
@@ -879,12 +953,72 @@ export function createPlugin(
         await routeEventGroup(sessionKey, events);
       }
 
-      // Update last check timestamp
+      // Update last check timestamp and persist to disk.
+      // Cap the processedCommentUrls map to prevent unbounded growth —
+      // keep the most recent 500 entries (well above what GitHub returns
+      // in a single poll, but bounded).
+      if (state.processedCommentUrls.size > 500) {
+        const entries = [...state.processedCommentUrls.entries()];
+        state.processedCommentUrls = new Map(entries.slice(-500));
+      }
       state.lastCheckTimestamp = new Date().toISOString();
+      persistState();
 
     } catch (err) {
       ctx.log.error(`GitHub polling error: ${err}`);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helper: Extract repo and issue/PR number from a notification.
+  // Returns null if the notification doesn't map to a commentable entity.
+  // ---------------------------------------------------------------------------
+
+  function extractCommentTarget(notif: GitHubNotification): {
+    repo: string;
+    number: string;
+    isPR: boolean;
+  } | null {
+    const match = notif.subject.url?.match(
+      /\/repos\/([^\/]+\/[^\/]+)\/(issues|pulls?)\/(\d+)$/
+    );
+    if (!match) return null;
+    return {
+      repo: match[1],
+      number: match[3],
+      isPR: match[2] !== "issues",
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helper: Post a comment on a GitHub issue or PR.
+  // Uses `gh issue comment` which works for both issues and PRs.
+  // ---------------------------------------------------------------------------
+
+  async function postComment(
+    repo: string,
+    number: string,
+    body: string
+  ): Promise<boolean> {
+    const result = await execGh([
+      "issue",
+      "comment",
+      number,
+      "--repo",
+      repo,
+      "--body",
+      body,
+    ]);
+
+    if (result.exitCode !== 0) {
+      ctx.log.error(
+        `Failed to post comment on ${repo}#${number}: ${result.stderr}`
+      );
+      return false;
+    }
+
+    ctx.log.info(`Posted comment on ${repo}#${number} (${body.length} chars)`);
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -907,13 +1041,41 @@ export function createPlugin(
 
     const combinedContext = contexts.join("\n\n" + "=".repeat(80) + "\n\n");
 
-    // Check if session is active (steer) or create new
-    if (ctx.isSessionActive(sessionKey)) {
-      ctx.log.info(`Steering active session: ${sessionKey}`);
-      await ctx.steerSession(sessionKey, combinedContext);
-    } else {
-      ctx.log.info(`Creating new session: ${sessionKey}`);
-      await ctx.prompt(sessionKey, agentName, combinedContext);
+    // Resolve the comment target from the first event (all events in a group
+    // share the same session key, i.e. same issue/PR).
+    const commentTarget = extractCommentTarget(events[0]);
+
+    let response: string | undefined;
+
+    // Always start a fresh session for each new notification batch.
+    // Each GitHub comment is a self-contained request — the full thread
+    // context is already included in combinedContext, so we don't need
+    // session history. This avoids issues with stale sessions and ensures
+    // every mention gets a response.
+    ctx.log.info(`Creating new session: ${sessionKey} (agent: ${agentName})`);
+    try {
+      await ctx.newSession(sessionKey, agentName);
+      response = await ctx.prompt(sessionKey, agentName, combinedContext);
+      ctx.log.info(
+        `Session ${sessionKey} completed. Response length: ${response?.length ?? 0} chars`
+      );
+    } catch (err) {
+      ctx.log.error(`Failed to prompt session ${sessionKey}: ${err}`);
+    }
+
+    // ── Auto-post the agent's response as a GitHub comment ────────────
+    // This ensures the response always reaches GitHub, even if the agent
+    // didn't call the github tool itself.
+    if (response && response.trim() && commentTarget) {
+      ctx.log.info(
+        `Auto-posting response to ${commentTarget.repo}#${commentTarget.number}`
+      );
+      await postComment(commentTarget.repo, commentTarget.number, response.trim());
+    } else if (response && !commentTarget) {
+      ctx.log.warn(
+        `Session ${sessionKey} produced a response but no comment target could be ` +
+        `extracted from the notification — response was NOT posted to GitHub.`
+      );
     }
   }
 
