@@ -11,6 +11,8 @@ A file-like abstraction for interacting with Notion pages and databases in the B
 - **Search**: Full-text search across pages and databases
 - **Comments**: List and add comments to pages
 - **Rate limiting**: Built-in rate limiting and retry logic
+- **Auto-download**: Automatically download pages to local workspace on read
+- **Write protection**: Prevents overwriting pages that have been modified by others
 
 ## Installation
 
@@ -25,7 +27,9 @@ A file-like abstraction for interacting with Notion pages and databases in the B
 {
   "apiKey": "your_notion_api_key_here",
   "rateLimit": 3,
-  "workspaceRootId": "optional_root_page_id"
+  "workspaceRootId": "optional_root_page_id",
+  "notionWorkspacePath": "notion/",
+  "downloadPageByDefault": true
 }
 ```
 
@@ -34,6 +38,8 @@ A file-like abstraction for interacting with Notion pages and databases in the B
 - `apiKey` (required): Notion API token
 - `rateLimit` (optional): Requests per second limit (default: 3)
 - `workspaceRootId` (optional): Notion workspace root page ID for path resolution
+- `notionWorkspacePath` (optional): Local workspace path for downloaded Notion pages (default: "notion/")
+- `downloadPageByDefault` (optional): Automatically download pages when read (default: true)
 
 ## Usage
 
@@ -42,6 +48,17 @@ A file-like abstraction for interacting with Notion pages and databases in the B
 #### Read a page as Markdown
 ```bash
 notion read /notion/notes/Journal.md
+```
+
+When you read a page:
+- The page content is returned as Markdown
+- The page is automatically downloaded to the local workspace (default: `notion/` path)
+- The last modified time is tracked for write protection
+- If the local file already exists, you'll be warned that it was overridden
+
+To skip downloading:
+```bash
+notion read /notion/notes/Journal.md --download=false
 ```
 
 #### Write content to a page
@@ -122,6 +139,45 @@ Paths use a virtual filesystem rooted at `/notion/`:
 /notion/tasks/Task-1.md  → Specific page
 /notion/notes/Journal/Subsection.md → Nested pages
 ```
+
+## Write Protection
+
+The plugin includes built-in protection to prevent overwriting pages that have been modified by others:
+
+### How It Works
+
+1. When you **read** a page, the tool tracks the `last_modified_time` of that page in session memory
+2. When you **write** or **patch** a page that was previously read in the same session:
+   - The tool fetches the current page metadata
+   - It compares the current `last_modified_time` with the tracked time
+   - If they differ, the operation fails with an error
+   - If they match, the operation proceeds
+
+### Error Message
+
+If a page has been modified since you last read it, you'll see:
+
+```
+Error: Page "/notion/notes/Journal.md" has been updated since it was last read.
+Last read: 2026-04-03T10:00:00.000Z, Current: 2026-04-03T10:05:00.000Z.
+Please read the page again before writing.
+```
+
+### To Resolve
+
+Simply read the page again to get the latest version:
+
+```bash
+notion read /notion/notes/Journal.md
+```
+
+Then proceed with your write/patch operation.
+
+### Notes
+
+- Protection only applies within the same session
+- If you haven't read a page in the current session, write/patch proceeds without validation
+- Append operations don't require validation (they're additive)
 
 ## Examples
 

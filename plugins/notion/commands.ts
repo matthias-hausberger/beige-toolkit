@@ -4,7 +4,7 @@
 
 import { NotionClient, NotionClientError, RateLimitError } from './client.js';
 import { NotionFileSystem } from './filesystem.js';
-import { DatabaseQueryOptions } from './types.js';
+import { DatabaseQueryOptions, PageReadState } from './types.js';
 
 export interface CommandArgs {
   command: string;
@@ -17,6 +17,46 @@ export interface CommandResult {
   success: boolean;
   data?: any;
   error?: string;
+}
+
+/**
+ * Session state for tracking page reads
+ * This is stored in memory per session
+ */
+const sessionReadState = new Map<string, PageReadState>();
+
+/**
+ * Get or create session read state for a path
+ */
+function getOrCreateReadState(path: string, pageId: string, lastModifiedTime: string): PageReadState {
+  const state: PageReadState = {
+    path,
+    pageId,
+    lastModifiedTime,
+  };
+  sessionReadState.set(path, state);
+  return state;
+}
+
+/**
+ * Get read state for a path
+ */
+function getReadState(path: string): PageReadState | undefined {
+  return sessionReadState.get(path);
+}
+
+/**
+ * Update read state
+ */
+function updateReadState(path: string, state: PageReadState): void {
+  sessionReadState.set(path, state);
+}
+
+/**
+ * Clear read state for a path
+ */
+function clearReadState(path: string): void {
+  sessionReadState.delete(path);
 }
 
 /**
@@ -59,7 +99,9 @@ export function parseCommand(input: string): CommandArgs {
 export async function handleCommand(
   input: string,
   client: NotionClient,
-  workspaceRootId?: string
+  workspaceRootId?: string,
+  notionWorkspacePath: string = 'notion/',
+  downloadPageByDefault: boolean = true
 ): Promise<CommandResult> {
   try {
     const { command, subcommand, args, options } = parseCommand(input);
@@ -72,15 +114,15 @@ export async function handleCommand(
       return { success: false, error: 'Missing subcommand. Usage: notion <subcommand> [options]' };
     }
 
-    const fs = new NotionFileSystem(client, workspaceRootId);
+    const fs = new NotionFileSystem(client, workspaceRootId, notionWorkspacePath);
 
     switch (subcommand) {
       case 'read':
-        return await handleRead(fs, args, options);
+        return await handleRead(fs, args, options, downloadPageByDefault);
       case 'write':
-        return await handleWrite(fs, args, options);
+        return await handleWrite(fs, args, options, client);
       case 'append':
-        return await handleAppend(fs, args, options);
+        return await handleAppend(fs, args, options, client);
       case 'patch':
         return await handlePatch(fs, args, options);
       case 'list':
@@ -123,21 +165,55 @@ export async function handleCommand(
 /**
  * Handle: notion read <path>
  */
-async function handleRead(fs: NotionFileSystem, args: string[], options: Record<string, string>): Promise<CommandResult> {
+async function handleRead(
+  fs: NotionFileSystem,
+  args: string[],
+  options: Record<string, string>,
+  downloadPageByDefault: boolean
+): Promise<CommandResult> {
   if (args.length === 0) {
-    return { success: false, error: 'Missing path. Usage: notion read <path>' };
+    return { success: false, error: 'Missing path. Usage: notion read <path> [--download]' };
   }
 
   const path = args[0];
-  const content = await fs.readFile(path);
+  const download = options.download === 'true' || (downloadPageByDefault && options.download !== 'false');
 
-  return { success: true, data: { path, content } };
+  const result = await fs.readFile(path, download);
+
+  // Store read state for validation on write/patch
+  const pageId = await (fs as any).resolvePath(path);
+  const state = getOrCreateReadState(path, pageId, result.lastModifiedTime);
+  if (result.localPath) {
+    state.localPath = result.localPath;
+    updateReadState(path, state);
+  }
+
+  const responseData: any = {
+    path,
+    content: result.content,
+    lastModifiedTime: result.lastModifiedTime,
+  };
+
+  if (result.localPath) {
+    responseData.localPath = result.localPath;
+  }
+
+  if (result.wasOverridden) {
+    responseData.wasOverridden = true;
+  }
+
+  return { success: true, data: responseData };
 }
 
 /**
  * Handle: notion write <path> <content>
  */
-async function handleWrite(fs: NotionFileSystem, args: string[], options: Record<string, string>): Promise<CommandResult> {
+async function handleWrite(
+  fs: NotionFileSystem,
+  args: string[],
+  options: Record<string, string>,
+  client: NotionClient
+): Promise<CommandResult> {
   if (args.length === 0) {
     return { success: false, error: 'Missing path. Usage: notion write <path> <content>' };
   }
@@ -149,7 +225,29 @@ async function handleWrite(fs: NotionFileSystem, args: string[], options: Record
     return { success: false, error: 'Missing content. Usage: notion write <path> <content> or notion write <path> --content "content"' };
   }
 
+  // Check if page was read before and validate it's still up-to-date
+  const readState = getReadState(path);
+  if (readState) {
+    const currentMetadata = await fs.getPageMetadata(path);
+
+    if (currentMetadata.lastModifiedTime !== readState.lastModifiedTime) {
+      return {
+        success: false,
+        error: `Page "${path}" has been updated since it was last read. Last read: ${readState.lastModifiedTime}, Current: ${currentMetadata.lastModifiedTime}. Please read the page again before writing.`,
+      };
+    }
+  }
+
   await fs.writeFile(path, content);
+
+  // Update read state after successful write
+  const pageId = await (fs as any).resolvePath(path);
+  const currentMetadata = await fs.getPageMetadata(path);
+  updateReadState(path, {
+    path,
+    pageId,
+    lastModifiedTime: currentMetadata.lastModifiedTime,
+  });
 
   return { success: true, data: { path, message: 'Content written successfully' } };
 }
@@ -157,7 +255,12 @@ async function handleWrite(fs: NotionFileSystem, args: string[], options: Record
 /**
  * Handle: notion append <path> <content>
  */
-async function handleAppend(fs: NotionFileSystem, args: string[], options: Record<string, string>): Promise<CommandResult> {
+async function handleAppend(
+  fs: NotionFileSystem,
+  args: string[],
+  options: Record<string, string>,
+  client: NotionClient
+): Promise<CommandResult> {
   if (args.length === 0) {
     return { success: false, error: 'Missing path. Usage: notion append <path> <content>' };
   }
@@ -171,13 +274,27 @@ async function handleAppend(fs: NotionFileSystem, args: string[], options: Recor
 
   await fs.appendFile(path, content);
 
+  // Update read state after successful append
+  const pageId = await (fs as any).resolvePath(path);
+  const currentMetadata = await fs.getPageMetadata(path);
+  updateReadState(path, {
+    path,
+    pageId,
+    lastModifiedTime: currentMetadata.lastModifiedTime,
+  });
+
   return { success: true, data: { path, message: 'Content appended successfully' } };
 }
 
 /**
  * Handle: notion patch <path> <changes>
  */
-async function handlePatch(fs: NotionFileSystem, args: string[], options: Record<string, string>): Promise<CommandResult> {
+async function handlePatch(
+  fs: NotionFileSystem,
+  args: string[],
+  options: Record<string, string>,
+  client: NotionClient
+): Promise<CommandResult> {
   if (args.length === 0) {
     return { success: false, error: 'Missing path. Usage: notion patch <path> <changes>' };
   }
@@ -189,7 +306,29 @@ async function handlePatch(fs: NotionFileSystem, args: string[], options: Record
     return { success: false, error: 'Missing changes. Usage: notion patch <path> <changes> or notion patch <path> --content "changes"' };
   }
 
+  // Check if page was read before and validate it's still up-to-date
+  const readState = getReadState(path);
+  if (readState) {
+    const currentMetadata = await fs.getPageMetadata(path);
+
+    if (currentMetadata.lastModifiedTime !== readState.lastModifiedTime) {
+      return {
+        success: false,
+        error: `Page "${path}" has been updated since it was last read. Last read: ${readState.lastModifiedTime}, Current: ${currentMetadata.lastModifiedTime}. Please read the page again before patching.`,
+      };
+    }
+  }
+
   await fs.patchFile(path, changes);
+
+  // Update read state after successful patch
+  const pageId = await (fs as any).resolvePath(path);
+  const currentMetadata = await fs.getPageMetadata(path);
+  updateReadState(path, {
+    path,
+    pageId,
+    lastModifiedTime: currentMetadata.lastModifiedTime,
+  });
 
   return { success: true, data: { path, message: 'Content patched successfully' } };
 }

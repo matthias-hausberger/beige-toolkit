@@ -211,6 +211,24 @@ export class NotionClient {
   }
 
   /**
+   * Get a page with Markdown and metadata
+   */
+  async getPageMarkdownWithMetadata(pageId: string): Promise<{
+    markdown: string;
+    lastModifiedTime: string;
+  }> {
+    const [page, markdownResponse] = await Promise.all([
+      this.request<NotionPage>(`/pages/${pageId}`),
+      this.request<MarkdownContent>(`/pages/${pageId}/markdown`),
+    ]);
+
+    return {
+      markdown: markdownResponse.markdown,
+      lastModifiedTime: page.last_edited_time,
+    };
+  }
+
+  /**
    * Update a page with Markdown content
    */
   async updatePageMarkdown(pageId: string, markdown: string): Promise<NotionPage> {

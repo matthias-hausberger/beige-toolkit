@@ -3,7 +3,7 @@
  */
 
 import { NotionClient, NotionClientError } from './client.js';
-import { NotionPage, NotionBlock, SearchResult } from './types.js';
+import { NotionPage, NotionBlock, SearchResult, ReadResult } from './types.js';
 
 export interface FileSystemEntry {
   path: string;
@@ -17,10 +17,12 @@ export class NotionFileSystem {
   private client: NotionClient;
   private pathCache: Map<string, string> = new Map();
   private workspaceRootId?: string;
+  private notionWorkspacePath: string;
 
-  constructor(client: NotionClient, workspaceRootId?: string) {
+  constructor(client: NotionClient, workspaceRootId?: string, notionWorkspacePath: string = 'notion/') {
     this.client = client;
     this.workspaceRootId = workspaceRootId;
+    this.notionWorkspacePath = notionWorkspacePath.endsWith('/') ? notionWorkspacePath : notionWorkspacePath + '/';
   }
 
   /**
@@ -99,9 +101,53 @@ export class NotionFileSystem {
   /**
    * Read a Notion page as Markdown
    */
-  async readFile(path: string): Promise<string> {
+  async readFile(path: string, downloadToWorkspace: boolean = false): Promise<ReadResult> {
     const pageId = await this.resolvePath(path);
-    return await this.client.getPageMarkdown(pageId);
+    const { markdown, lastModifiedTime } = await this.client.getPageMarkdownWithMetadata(pageId);
+
+    let localPath: string | undefined;
+    let wasOverridden = false;
+
+    if (downloadToWorkspace) {
+      // Convert Notion path to local file path
+      const normalizedPath = path.replace(/^\/notion\/?/, '');
+      localPath = `${this.notionWorkspacePath}${normalizedPath}`;
+
+      // Check if file already exists
+      const fs = await import('fs/promises');
+      try {
+        await fs.access(localPath);
+        wasOverridden = true;
+      } catch {
+        // File doesn't exist, not an override
+      }
+
+      // Ensure directory exists
+      const dir = localPath.substring(0, localPath.lastIndexOf('/'));
+      await fs.mkdir(dir, { recursive: true });
+
+      // Write content to local file
+      await fs.writeFile(localPath, markdown, 'utf-8');
+    }
+
+    return {
+      content: markdown,
+      lastModifiedTime,
+      localPath,
+      wasOverridden,
+    };
+  }
+
+  /**
+   * Get page metadata (last modified time) for validation
+   */
+  async getPageMetadata(path: string): Promise<{ pageId: string; lastModifiedTime: string }> {
+    const pageId = await this.resolvePath(path);
+    const page = await this.client.getPage(pageId);
+    return {
+      pageId,
+      lastModifiedTime: page.last_edited_time,
+    };
   }
 
   /**

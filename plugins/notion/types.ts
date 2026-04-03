@@ -106,3 +106,23 @@ export interface DatabaseQueryOptions {
   start_cursor?: string;
   page_size?: number;
 }
+
+/**
+ * Session state for tracking page reads and their last modified times
+ */
+export interface PageReadState {
+  path: string;
+  pageId: string;
+  lastModifiedTime: string;
+  localPath?: string;
+}
+
+/**
+ * Read result with metadata
+ */
+export interface ReadResult {
+  content: string;
+  lastModifiedTime: string;
+  localPath?: string;
+  wasOverridden?: boolean;
+}
