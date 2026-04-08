@@ -524,6 +524,20 @@ export function createPlugin(
         // ── Step 3: send the final formatted response as Message 2 ─────────
         // This triggers exactly one push notification (the new message).
         // After it's sent we delete Message 1 so only the final answer remains.
+
+        // Log empty streaming responses for debugging
+        if (!response || response.trim().length === 0) {
+          const modelRef = ctx.getSessionModel(sessionKey);
+          const usage = ctx.getSessionUsage(sessionKey);
+          ctx.log.warn(
+            `[empty-response-streaming] Detected for chat:${chatId}` +
+            `${threadId ? `/thread:${threadId}` : ""}` +
+            ` | session:${sessionKey}` +
+            ` | model:${modelRef ? `${modelRef.provider}/${modelRef.modelId}` : "unknown"}` +
+            ` | tokens:${usage ? usage.inputTokens : "unknown"}`
+          );
+        }
+
         await sendLongMessageTo(chatId, threadId, response);
 
         // ── Step 4: delete the Processing placeholder ──────────────────────
@@ -615,6 +629,20 @@ export function createPlugin(
     threadId: number | undefined,
     text: string
   ): Promise<void> {
+    // Log empty responses for debugging and pattern analysis
+    if (!text || text.trim().length === 0) {
+      const sessionKey = telegramSessionKey(chatId, threadId);
+      const modelRef = ctx.getSessionModel(sessionKey);
+      const usage = ctx.getSessionUsage(sessionKey);
+      ctx.log.warn(
+        `[empty-response] Detected for chat:${chatId}` +
+        `${threadId ? `/thread:${threadId}` : ""}` +
+        ` | session:${sessionKey}` +
+        ` | model:${modelRef ? `${modelRef.provider}/${modelRef.modelId}` : "unknown"}` +
+        ` | tokens:${usage ? usage.inputTokens : "unknown"}`
+      );
+    }
+
     const content = text || "(empty response)";
     const threadOpts = threadId ? { message_thread_id: threadId } : {};
 
